@@ -20,32 +20,134 @@ logger = logging.getLogger(__name__)
 # Curated RSS feed sources – mix of real aggregator feeds + user feed
 # ---------------------------------------------------------------------------
 DEFAULT_FEEDS: list[dict] = [
+    # ---- User's custom RSS.app feed ----
     {
         "name": "User Feed",
         "url": "",  # filled from config.json
         "category": "custom",
     },
+    # ---- Indeed ----
+    # Create RSS.app feeds from: https://www.indeed.com/jobs?q=data+engineer&l=Remote
     {
-        "name": "Hacker News – Who is Hiring?",
-        "url": "https://hnrss.org/whoishiring/jobs",
-        "category": "tech",
+        "name": "Indeed – Data Engineer",
+        "url": "",  # Replace with your RSS.app feed for Indeed data engineer search
+        "category": "indeed",
     },
+    {
+        "name": "Indeed – Senior Data Engineer",
+        "url": "",  # Replace with your RSS.app feed for Indeed senior data engineer search
+        "category": "indeed",
+    },
+    {
+        "name": "Indeed – Staff Data Engineer",
+        "url": "",  # Replace with your RSS.app feed for Indeed staff data engineer search
+        "category": "indeed",
+    },
+    {
+        "name": "Indeed – Principal Data Engineer",
+        "url": "",  # Replace with your RSS.app feed for Indeed principal data engineer search
+        "category": "indeed",
+    },
+    # ---- LinkedIn (via RSS.app – replace with your feed) ----
+    {
+        "name": "LinkedIn – Data Engineer (RSS.app)",
+        "url": "https://rss.app/feeds/6dUWERqAQ0aEHTu1.xml",
+        "category": "linkedin",
+    },
+    # ---- Remote-first job boards ----
     {
         "name": "RemoteOK – Remote Jobs",
         "url": "https://remoteok.com/remote-jobs.rss",
         "category": "remote",
     },
     {
-        "name": "We Work Remotely",
+        "name": "We Work Remotely – Programming",
         "url": "https://weworkremotely.com/categories/remote-programming-jobs.rss",
         "category": "remote",
     },
     {
-        "name": "GitHub Jobs (via RSS.app)",
-        "url": "",  # placeholder – users can add their own
+        "name": "We Work Remotely – DevOps & Sysadmin",
+        "url": "https://weworkremotely.com/categories/remote-devops-sysadmin-jobs.rss",
+        "category": "remote",
+    },
+    # ---- Tech communities ----
+    {
+        "name": "Hacker News – Who is Hiring?",
+        "url": "https://hnrss.org/whoishiring/jobs",
         "category": "tech",
     },
+    # ---- Jobspresso (curated remote jobs) ----
+    {
+        "name": "Jobspresso – Remote Tech",
+        "url": "https://jobspresso.co/feed/",
+        "category": "remote",
+    },
+    # ---- Dice (tech-focused job board) ----
+    # Create RSS.app feeds from: https://www.dice.com/jobs?q=data+engineer&location=Remote
+    {
+        "name": "Dice – Data Engineer",
+        "url": "",  # Replace with your RSS.app feed for Dice data engineer search
+        "category": "dice",
+    },
+    {
+        "name": "Dice – Senior Data Engineer",
+        "url": "",  # Replace with your RSS.app feed for Dice senior data engineer search
+        "category": "dice",
+    },
+    # ---- Glassdoor ----
+    # Create RSS.app feeds from: https://www.glassdoor.com/Job/data-engineer-jobs-SRCH_KO0,13.htm
+    {
+        "name": "Glassdoor – Data Engineer",
+        "url": "",  # Replace with your RSS.app feed for Glassdoor data engineer search
+        "category": "glassdoor",
+    },
+    {
+        "name": "Glassdoor – Senior Data Engineer",
+        "url": "",  # Replace with your RSS.app feed for Glassdoor senior data engineer search
+        "category": "glassdoor",
+    },
+    # ---- Greenhouse.io (popular ATS used by many tech companies) ----
+    # Create RSS.app feeds from: https://boards.greenhouse.io/embed/job_board?for=<company>
+    {
+        "name": "Greenhouse – Data Engineer",
+        "url": "",  # Replace with your RSS.app feed for Greenhouse job boards
+        "category": "greenhouse",
+    },
+    # ---- Talent500 (global remote talent platform) ----
+    # Create RSS.app feeds from: https://talent500.co/jobs?q=data+engineer&type=remote
+    {
+        "name": "Talent500 – Data Engineer",
+        "url": "",  # Replace with your RSS.app feed for Talent500 data engineer search
+        "category": "talent500",
+    },
 ]
+
+# ---------------------------------------------------------------------------
+# HOW TO ADD FEEDS FOR BLOCKED PLATFORMS (Glassdoor, Dice, Greenhouse, etc.)
+# ---------------------------------------------------------------------------
+# These sites block direct RSS access. Use https://rss.app to create feeds:
+#
+# 1. Go to https://rss.app → "New Feed" → "Website to RSS"
+# 2. Paste the search URL for each platform:
+#
+#    DICE:
+#      https://www.dice.com/jobs?q=data+engineer&location=Remote
+#      https://www.dice.com/jobs?q=senior+data+engineer&location=Remote
+#
+#    GLASSDOOR:
+#      https://www.glassdoor.com/Job/data-engineer-jobs-SRCH_KO0,13.htm
+#      https://www.glassdoor.com/Job/senior-data-engineer-jobs-SRCH_KO0,20.htm
+#
+#    GREENHOUSE (per-company boards):
+#      https://boards.greenhouse.io/embed/job_board?for=airbnb
+#      https://boards.greenhouse.io/embed/job_board?for=stripe
+#
+#    TALENT500:
+#      https://talent500.co/jobs?q=data+engineer&type=remote
+#
+# 3. Copy the generated RSS.app feed URL (e.g. https://rss.app/feeds/xxxxx.xml)
+# 4. Paste it into the matching "url" field in DEFAULT_FEEDS above
+# ---------------------------------------------------------------------------
 
 
 @dataclass
