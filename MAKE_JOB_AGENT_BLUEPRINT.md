@@ -4,6 +4,12 @@ End-to-end blueprint for a scheduled job-ingestion scenario with **configurable 
 
 Copy values from `config.example.json` into your Make.com Data store, Airtable Settings, or scenario parameters.
 
+### Make.com mapping convention (read first)
+
+Use **one canonical set of field names** everywhere: `job_role`, `location`, `rss_feed_url`, optional `resume_summary`. Your config module (Data store, Airtable Settings, or parameters) must expose outputs with **exactly these keys** (rename columns/keys in Make if needed so they match).
+
+In Make’s UI, mapped values are shown with a **module index**, e.g. `{{1.job_role}}`, `{{1.location}}`—the part after the dot must still be `job_role`, `location`, etc. The prompt templates in §4 use the shorthand `{{job_role}}`, `{{location}}`, … meaning *insert that same field from your config module bundle*—not a different name like `config.job_role`.
+
 ---
 
 ## 0. Configuration (change role/location in one place)
@@ -15,7 +21,7 @@ Pick **one** pattern; downstream modules only reference mapped fields—never ha
 1. Create a data store, e.g. `job_search_config`.
 2. Store: `job_role`, `location`, `rss_feed_url`, optionally `resume_summary`.
 3. **First module after schedule:** Data store → get your config record.
-4. Map: `{{config.job_role}}`, `{{config.location}}`, `{{config.rss_feed_url}}`.
+4. Wire later modules from this bundle using **`job_role`**, **`location`**, **`rss_feed_url`** (and **`resume_summary`** if used). In the editor they appear like `{{1.job_role}}`, `{{1.location}}`—same identifiers as in §4.
 
 **To change search:** edit the data store entry only.
 
@@ -23,7 +29,7 @@ Pick **one** pattern; downstream modules only reference mapped fields—never ha
 
 - Single-row table `Settings` with fields: `Job Role`, `Location`, `RSS Feed URL`, optional `Resume Summary`.
 - First module: Search records (e.g. one fixed record id).
-- Map fields into RSS URL and prompts.
+- In Make, **map or rename** Airtable outputs so downstream steps use the same canonical names **`job_role`**, **`location`**, **`rss_feed_url`**, **`resume_summary`** (use a **Set variable** / **Tools** step if Airtable field labels differ).
 
 ### Option C — Scenario parameters
 
@@ -84,7 +90,7 @@ Schedule (every 3h) → Get config → RSS → Airtable Search (by Job Link)
 
 ## 4. Production prompts
 
-**Mapping (same as §0):** Each `{{…}}` below is the **canonical field name** you insert from your **config module** (`job_role`, `location`, `resume_summary`) or from the **HTTP** / **prior Gemini** step (`HTTP_Response_Data`, `Gemini_Summary_Output`). Do not mix in a `config.` prefix unless you have a real Make item named that way.
+**Mapping (same as §0):** Each `{{…}}` below is the **canonical field name** you insert from your **config module** (`job_role`, `location`, `resume_summary`) or from the **HTTP** / **prior Gemini** step (`HTTP_Response_Data`, `Gemini_Summary_Output`). Do not use a `config.` prefix unless you have a real Make item named that way.
 
 ### Module A — Summarizer (max 215 characters)
 
