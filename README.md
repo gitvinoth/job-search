@@ -71,6 +71,29 @@ Install deps include the official `anthropic` SDK. Create keys in the [Anthropic
 
 **Note:** “Claudr” / typos aside—this integration is **Anthropic’s Claude API**, not a third-party wrapper.
 
+### LLM: totally free options (no cloud API bill)
+
+**1) `local` — built-in heuristics (simplest, $0)**  
+No API keys, no extra installs. Summary is stripped HTML/text truncated to 215 characters; match score is **keyword overlap** (F1-style) between that text and your `resume_summary` in `config.json`. Good for triage, not “smart” like a real model.
+
+```bash
+LLM_PROVIDER=local
+```
+
+**2) `ollama` — free local models (better quality, still $0 API)**  
+Install [Ollama](https://ollama.com), run `ollama pull llama3.2` (or another model), then:
+
+```bash
+LLM_PROVIDER=ollama
+OLLAMA_MODEL=llama3.2
+# OLLAMA_BASE_URL=http://127.0.0.1:11434
+```
+
+Uses the same prompts as Gemini/Anthropic; inference runs on your Mac (CPU/GPU). Cost is only your electricity / hardware, not per-token API fees.
+
+**3) `--no-ai`**  
+Skips all LLM calls; summary is RSS snippet only and match score is `0`. Already supported.
+
 ## Run
 
 ```bash
@@ -97,7 +120,7 @@ Schedule with **cron**, **launchd**, **GitHub Actions**, or **Make.com** calling
 | Path | Purpose |
 |------|---------|
 | [MAKE_JOB_AGENT_BLUEPRINT.md](./MAKE_JOB_AGENT_BLUEPRINT.md) | Make.com module mapping and prompts |
-| [job_search/](./job_search/) | Python implementation (`gemini_client`, `anthropic_client`, `llm_common`) |
+| [job_search/](./job_search/) | Python implementation (`gemini_client`, `anthropic_client`, `ollama_client`, `local_llm`, `llm_common`) |
 | `config.example.json` | Template for `config.json` (not committed with secrets) |
 | `.env.example` | Template for `.env` |
 

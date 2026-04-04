@@ -15,9 +15,11 @@ class Settings:
     resume_summary: str
     airtable_base_id: str
     airtable_table_name: str
-    llm_provider: str  # "gemini" | "anthropic"
+    llm_provider: str  # gemini | anthropic | ollama | local
     gemini_model: str
     anthropic_model: str
+    ollama_base_url: str
+    ollama_model: str
     airtable_token: str
     gemini_api_key: str
     anthropic_api_key: str
@@ -63,12 +65,15 @@ def load_settings(config_path: str | Path) -> Settings:
     # Default must be a model ID that exists on generativelanguage.googleapis.com v1beta for AI Studio keys.
     gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash").strip()
     anthropic_model = os.environ.get("ANTHROPIC_MODEL", "claude-3-5-haiku-20241022").strip()
+    ollama_base_url = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip().rstrip("/")
+    ollama_model = os.environ.get("OLLAMA_MODEL", "llama3.2").strip()
     airtable_token = os.environ.get("AIRTABLE_TOKEN", "").strip()
     gemini_api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
 
     raw_provider = os.environ.get("LLM_PROVIDER", "gemini").strip().lower()
-    llm_provider = raw_provider if raw_provider in ("gemini", "anthropic") else "gemini"
+    allowed = ("gemini", "anthropic", "ollama", "local")
+    llm_provider = raw_provider if raw_provider in allowed else "gemini"
 
     return Settings(
         job_role=job_role,
@@ -80,6 +85,8 @@ def load_settings(config_path: str | Path) -> Settings:
         llm_provider=llm_provider,
         gemini_model=gemini_model,
         anthropic_model=anthropic_model,
+        ollama_base_url=ollama_base_url,
+        ollama_model=ollama_model,
         airtable_token=airtable_token,
         gemini_api_key=gemini_api_key,
         anthropic_api_key=anthropic_api_key,

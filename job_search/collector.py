@@ -32,7 +32,11 @@ class JobLLM(Protocol):
 def _has_llm_credentials(settings: Settings) -> bool:
     if settings.llm_provider == "anthropic":
         return bool(settings.anthropic_api_key)
-    return bool(settings.gemini_api_key)
+    if settings.llm_provider == "gemini":
+        return bool(settings.gemini_api_key)
+    if settings.llm_provider in ("ollama", "local"):
+        return True
+    return False
 
 
 def _make_llm(settings: Settings) -> JobLLM:
@@ -40,6 +44,14 @@ def _make_llm(settings: Settings) -> JobLLM:
         from job_search.anthropic_client import AnthropicLLMClient
 
         return AnthropicLLMClient(settings)
+    if settings.llm_provider == "ollama":
+        from job_search.ollama_client import OllamaLLMClient
+
+        return OllamaLLMClient(settings)
+    if settings.llm_provider == "local":
+        from job_search.local_llm import LocalHeuristicLLM
+
+        return LocalHeuristicLLM()
     from job_search.gemini_client import GeminiClient
 
     return GeminiClient(settings)
@@ -82,12 +94,12 @@ def run(options: RunOptions) -> int:
             return 1
         if settings.llm_provider == "gemini" and not settings.gemini_api_key:
             logger.error(
-                "GEMINI_API_KEY is not set (or set LLM_PROVIDER=anthropic with ANTHROPIC_API_KEY, or use --no-ai)"
+                "GEMINI_API_KEY is not set (or LLM_PROVIDER=anthropic|ollama|local, or use --no-ai)"
             )
             return 1
 
     if options.dry_run and not options.no_ai and not _has_llm_credentials(settings):
-        logger.warning("dry-run: no LLM API key for provider %s; using RSS text only", settings.llm_provider)
+        logger.warning("dry-run: no credentials for provider %s; using RSS text only", settings.llm_provider)
         options = replace(options, no_ai=True)
 
     try:
