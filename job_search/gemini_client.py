@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-import google.generativeai as genai
+from google import genai
 
 from job_search.config import Settings
 
@@ -25,8 +25,15 @@ def _truncate(text: str, max_chars: int) -> str:
 
 class GeminiClient:
     def __init__(self, settings: Settings) -> None:
-        genai.configure(api_key=settings.gemini_api_key)
-        self._model = genai.GenerativeModel(settings.gemini_model)
+        self._client = genai.Client(api_key=settings.gemini_api_key)
+        self._model = settings.gemini_model
+
+    def _generate(self, prompt: str) -> str:
+        response = self._client.models.generate_content(
+            model=self._model,
+            contents=prompt,
+        )
+        return _response_text(response)
 
     def summarize_job_html(
         self,
@@ -42,8 +49,7 @@ class GeminiClient:
             "Task: Output only a concise summary (max 215 characters) with core technologies "
             "and primary responsibilities. If the input is unusable, summarize any readable plain text."
         )
-        response = self._model.generate_content(prompt)
-        text = _response_text(response)
+        text = self._generate(prompt)
         return text[:215] if len(text) > 215 else text
 
     def match_score(
@@ -62,8 +68,7 @@ class GeminiClient:
             "(skills, level, domain).\n"
             "Return ONLY the integer (e.g. 85). No other text."
         )
-        response = self._model.generate_content(prompt)
-        raw = _response_text(response)
+        raw = self._generate(prompt)
         m = re.search(r"\b(\d{1,3})\b", raw)
         if not m:
             return 0

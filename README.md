@@ -74,3 +74,23 @@ Schedule with **cron**, **launchd**, **GitHub Actions**, or **Make.com** calling
 
 - Many job sites block simple HTTP GETs; if summaries are empty, use `--skip-scrape` and rely on RSS text, or adjust hosting / headers (see `collector.py`).
 - Keep RSS/search text under **32 words** when configuring feeds that depend on short queries (see blueprint).
+
+## Troubleshooting
+
+### `SSL: CERTIFICATE_VERIFY_FAILED` when fetching RSS
+
+RSS is loaded with `requests` and [certifi](https://pypi.org/project/certifi/)’s CA bundle. If it still fails:
+
+- **Python.org macOS installer:** run **Install Certificates.command** (in `/Applications/Python 3.x/`).
+- **Corporate proxy / custom roots:** configure your system or `REQUESTS_CA_BUNDLE` / `SSL_CERT_FILE` to point at your CA bundle.
+
+### Gemini: `google.generativeai` / FutureWarning
+
+Use **`google-genai`** only. After pulling the latest code, reinstall and remove the old package:
+
+```bash
+pip install -r requirements.txt
+pip uninstall -y google-generativeai
+```
+
+This project uses `from google import genai` ([migration guide](https://ai.google.dev/gemini-api/docs/migrate)).
