@@ -1,14 +1,76 @@
 # job-search
 
-Make.com blueprint and config template for a **Daily Job Collector** (RSS → Airtable → HTTP scrape → Gemini) with **configurable job role and location**.
-
-## Files
-
-| File | Description |
-|------|-------------|
-| [MAKE_JOB_AGENT_BLUEPRINT.md](./MAKE_JOB_AGENT_BLUEPRINT.md) | Scenario design, module mapping, prompts, and Make.com field naming |
-| [config.example.json](./config.example.json) | Example `job_role`, `location`, `rss_feed_url`, `resume_summary` |
-
-Copy `config.example.json` into your Make Data store or Airtable Settings; do not commit real API keys or private resume text.
+Runnable **Daily Job Collector** (RSS → optional HTML fetch → **Gemini** → **Airtable**) plus a [Make.com blueprint](./MAKE_JOB_AGENT_BLUEPRINT.md). **Job role**, **location**, and **RSS URL** live in `config.json` so you can retarget searches without code changes.
 
 Repository: [github.com/gitvinoth/job-search](https://github.com/gitvinoth/job-search)
+
+## Prerequisites
+
+- Python 3.10+
+- [Airtable](https://airtable.com/) base with a table and [personal access token](https://airtable.com/create/tokens)
+- [Google AI Studio](https://aistudio.google.com/) API key for Gemini
+
+## Airtable table (required field names)
+
+Create these **exact** field names (types in parentheses):
+
+| Field | Type |
+|-------|------|
+| Job Link | Single line text |
+| Title | Single line text |
+| Search Role | Single line text |
+| Search Location | Single line text |
+| Summary | Long text |
+| Match Score | Number (integer 0–100) |
+
+Duplicate detection uses **Job Link** only.
+
+## Setup
+
+```bash
+cd job-search
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp config.example.json config.json
+cp .env.example .env
+```
+
+Edit **`config.json`**: `job_role`, `location`, `rss_feed_url`, `resume_summary`, `airtable_base_id`, `airtable_table_name`.
+
+Edit **`.env`**: `AIRTABLE_TOKEN`, `GEMINI_API_KEY`. Optional: `GEMINI_MODEL` (default `gemini-1.5-pro`).
+
+## Run
+
+```bash
+# One-shot (writes to Airtable)
+python -m job_search --config config.json
+
+# Plan only: dedupe + AI, no Airtable creates
+python -m job_search --config config.json --dry-run
+
+# No Gemini (RSS description only, match score 0)
+python -m job_search --config config.json --no-ai
+
+# Rate limit: 30s between job page fetches (default)
+python -m job_search --sleep 30 --max 10
+
+# Skip HTTP scrape; summarize RSS snippet only
+python -m job_search --skip-scrape
+```
+
+Schedule with **cron**, **launchd**, **GitHub Actions**, or **Make.com** calling this command on your host.
+
+## Project layout
+
+| Path | Purpose |
+|------|---------|
+| [MAKE_JOB_AGENT_BLUEPRINT.md](./MAKE_JOB_AGENT_BLUEPRINT.md) | Make.com module mapping and prompts |
+| [job_search/](./job_search/) | Python implementation |
+| `config.example.json` | Template for `config.json` (not committed with secrets) |
+| `.env.example` | Template for `.env` |
+
+## Notes
+
+- Many job sites block simple HTTP GETs; if summaries are empty, use `--skip-scrape` and rely on RSS text, or adjust hosting / headers (see `collector.py`).
+- Keep RSS/search text under **32 words** when configuring feeds that depend on short queries (see blueprint).

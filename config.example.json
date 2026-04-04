@@ -2,5 +2,7 @@
   "job_role": "Senior Data Engineer",
   "location": "Remote United States",
   "rss_feed_url": "https://rss.app/your-feed-id.xml",
-  "resume_summary": "Paste your resume summary here for the Job Matcher prompt, or keep it only in Airtable Settings."
+  "resume_summary": "Paste your resume summary here for the Job Matcher prompt.",
+  "airtable_base_id": "appXXXXXXXXXXXXXX",
+  "airtable_table_name": "Jobs"
 }
