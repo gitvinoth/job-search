@@ -155,6 +155,13 @@ def _build_app(config_path: str = "config.json") -> Flask:
     settings = load_settings(config_path)
     llm = LocalHeuristicLLM()
 
+    # Mutable settings that can be changed at runtime via the Settings panel
+    _live = {
+        "job_role": settings.job_role,
+        "location": settings.location,
+        "resume_summary": settings.resume_summary,
+    }
+
     # Wire user feed
     feeds = []
     for f in DEFAULT_FEEDS:
@@ -185,15 +192,15 @@ def _build_app(config_path: str = "config.json") -> Flask:
         for item in items:
             plain = _strip_html_to_text(item.description)
             summary = llm.summarize_job_html(
-                job_role=settings.job_role,
-                location=settings.location,
+                job_role=_live["job_role"],
+                location=_live["location"],
                 html_or_text=item.description,
             )
             score = llm.match_score(
                 job_summary=summary,
-                job_role=settings.job_role,
-                location=settings.location,
-                resume_summary=settings.resume_summary,
+                job_role=_live["job_role"],
+                location=_live["location"],
+                resume_summary=_live["resume_summary"],
             )
             jobs.append(ScoredJob(
                 title=item.title,
@@ -297,6 +304,37 @@ footer{text-align:center;padding:30px 0;color:var(--muted);font-size:.8rem;borde
     <option value="60">Score 60+</option>
   </select>
   <button class="btn" id="refreshBtn" onclick="refresh()">Refresh Feeds</button>
+  <button class="btn" style="background:#64748b" onclick="openSettings()">Settings</button>
+</div>
+
+<!-- Settings Modal -->
+<div id="settingsModal" style="display:none;position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.6);
+  display:none;align-items:center;justify-content:center">
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;
+    width:90%;max-width:600px;max-height:90vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 style="font-size:1.2rem">Job Search Settings</h2>
+      <button onclick="closeSettings()" style="background:none;border:none;color:var(--muted);
+        font-size:1.5rem;cursor:pointer">&times;</button>
+    </div>
+    <label style="display:block;margin-bottom:4px;color:var(--muted);font-size:.85rem">Job Titles</label>
+    <input type="text" id="setRole" style="width:100%;background:var(--bg);color:var(--text);
+      border:1px solid var(--border);padding:10px;border-radius:6px;margin-bottom:12px;font-size:.9rem"
+      placeholder="e.g. Data Engineer, Senior Data Engineer">
+    <label style="display:block;margin-bottom:4px;color:var(--muted);font-size:.85rem">Location</label>
+    <input type="text" id="setLocation" style="width:100%;background:var(--bg);color:var(--text);
+      border:1px solid var(--border);padding:10px;border-radius:6px;margin-bottom:12px;font-size:.9rem"
+      placeholder="e.g. Remote United States">
+    <label style="display:block;margin-bottom:4px;color:var(--muted);font-size:.85rem">Resume Summary / Job Description</label>
+    <textarea id="setResume" rows="6" style="width:100%;background:var(--bg);color:var(--text);
+      border:1px solid var(--border);padding:10px;border-radius:6px;margin-bottom:16px;font-size:.85rem;
+      resize:vertical" placeholder="Describe your skills, experience, and target role..."></textarea>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn" style="background:#64748b" onclick="closeSettings()">Cancel</button>
+      <button class="btn" id="saveSettingsBtn" onclick="saveSettings()">Save &amp; Re-score</button>
+    </div>
+    <p id="settingsStatus" style="margin-top:10px;font-size:.85rem;color:var(--green);display:none"></p>
+  </div>
 </div>
 
 <div class="feed-tabs" id="feedTabs"></div>
@@ -402,6 +440,48 @@ document.getElementById('search').addEventListener('input',()=>renderGrid(allJob
 document.getElementById('sortBy').addEventListener('change',()=>renderGrid(allJobs));
 document.getElementById('minScore').addEventListener('change',()=>renderGrid(allJobs));
 
+// Settings modal
+async function openSettings(){
+  const modal=document.getElementById('settingsModal');
+  modal.style.display='flex';
+  try{
+    const r=await fetch('/api/settings');
+    const s=await r.json();
+    document.getElementById('setRole').value=s.job_role||'';
+    document.getElementById('setLocation').value=s.location||'';
+    document.getElementById('setResume').value=s.resume_summary||'';
+  }catch(e){console.error(e);}
+}
+function closeSettings(){document.getElementById('settingsModal').style.display='none';}
+async function saveSettings(){
+  const btn=document.getElementById('saveSettingsBtn');
+  const status=document.getElementById('settingsStatus');
+  btn.classList.add('loading');btn.textContent='Saving...';
+  try{
+    const body={
+      job_role:document.getElementById('setRole').value,
+      location:document.getElementById('setLocation').value,
+      resume_summary:document.getElementById('setResume').value
+    };
+    const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d=await r.json();
+    if(d.ok){
+      status.textContent='Saved! Refreshing jobs with new settings...';
+      status.style.display='block';
+      // Update footer
+      document.querySelector('footer').innerHTML=
+        'Job Search Dashboard &middot; Targeting: <strong>'+esc(d.job_role)+'</strong> in <strong>'+esc(d.location)+'</strong> &middot; Auto-refreshes every 5 min';
+      setTimeout(async()=>{
+        closeSettings();
+        status.style.display='none';
+        await refresh();
+      },1500);
+    }
+  }catch(e){console.error(e);status.textContent='Error saving settings';status.style.color='var(--red)';status.style.display='block';}
+  btn.classList.remove('loading');btn.textContent='Save & Re-score';
+}
+document.getElementById('settingsModal').addEventListener('click',function(e){if(e.target===this)closeSettings();});
+
 // Initial load + auto-refresh
 refresh();
 setInterval(refresh, 300000);
@@ -414,7 +494,7 @@ setInterval(refresh, 300000);
     # ================================================================
     @app.route("/")
     def index():
-        return render_template_string(HTML, job_role=settings.job_role, location=settings.location)
+        return render_template_string(HTML, job_role=_live["job_role"], location=_live["location"])
 
     @app.route("/api/jobs")
     def api_jobs():
@@ -437,6 +517,39 @@ setInterval(refresh, 300000);
             return jsonify({"error": "url required"}), 400
         feeds.append({"name": name, "url": url, "category": "custom"})
         return jsonify({"ok": True, "feeds": len(feeds)})
+
+    @app.route("/api/settings")
+    def api_settings():
+        return jsonify(_live)
+
+    @app.route("/api/settings", methods=["POST"])
+    def api_update_settings():
+        import json as _json
+        data = request.get_json(silent=True) or {}
+        changed = False
+        for key in ("job_role", "location", "resume_summary"):
+            if key in data and isinstance(data[key], str) and data[key].strip():
+                _live[key] = data[key].strip()
+                changed = True
+        if changed:
+            # Clear cache so jobs are re-scored with new settings
+            _cache.clear()
+            _last_refresh.clear()
+            # Persist to config.json
+            try:
+                cfg_path = os.path.abspath(config_path)
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    cfg = _json.load(f)
+                cfg["job_role"] = _live["job_role"]
+                cfg["location"] = _live["location"]
+                cfg["resume_summary"] = _live["resume_summary"]
+                with open(cfg_path, "w", encoding="utf-8") as f:
+                    _json.dump(cfg, f, indent=2, ensure_ascii=False)
+                    f.write("\n")
+                logger.info("Settings saved to %s", cfg_path)
+            except Exception as e:
+                logger.warning("Could not save settings to config.json: %s", e)
+        return jsonify({"ok": True, **_live})
 
     return app
 
