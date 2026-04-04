@@ -196,11 +196,16 @@ def _build_app(config_path: str = "config.json") -> Flask:
                 location=_live["location"],
                 html_or_text=item.description,
             )
+            # Include job_role and location in resume text so they
+            # contribute to the keyword-overlap score.
+            enriched_resume = (
+                f"{_live['resume_summary']} {_live['job_role']} {_live['location']}"
+            )
             score = llm.match_score(
                 job_summary=summary,
                 job_role=_live["job_role"],
                 location=_live["location"],
-                resume_summary=_live["resume_summary"],
+                resume_summary=enriched_resume,
             )
             jobs.append(ScoredJob(
                 title=item.title,
@@ -432,6 +437,10 @@ async function refresh(){
     const data=await fetchJobs();
     allJobs=data.jobs||[];
     renderTabs(allJobs);renderGrid(allJobs);
+    if(data.settings){
+      document.querySelector('footer').innerHTML=
+        'Job Search Dashboard &middot; Targeting: <strong>'+esc(data.settings.job_role)+'</strong> in <strong>'+esc(data.settings.location)+'</strong> &middot; Auto-refreshes every 5 min';
+    }
   }catch(e){console.error(e);}
   btn.classList.remove('loading');btn.textContent='Refresh Feeds';
 }
@@ -502,7 +511,11 @@ setInterval(refresh, 300000);
         for feed in feeds:
             all_jobs.extend(_fetch_and_score(feed))
         all_jobs.sort(key=lambda j: j.score, reverse=True)
-        return jsonify({"jobs": [asdict(j) for j in all_jobs], "feeds": len(feeds)})
+        return jsonify({
+            "jobs": [asdict(j) for j in all_jobs],
+            "feeds": len(feeds),
+            "settings": {**_live},
+        })
 
     @app.route("/api/feeds")
     def api_feeds():
