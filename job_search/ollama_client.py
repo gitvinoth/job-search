@@ -2,30 +2,48 @@ from __future__ import annotations
 
 import re
 
-from google import genai
+import requests
 
 from job_search.config import Settings
 from job_search.llm_common import MAX_HTML_CHARS, match_prompt, summarize_prompt, truncate
 
 
-def _response_text(response: object) -> str:
-    try:
-        return (getattr(response, "text", None) or "").strip()
-    except Exception:
-        return ""
+def _message_text(data: dict) -> str:
+    msg = data.get("message") or {}
+    c = msg.get("content")
+    if isinstance(c, str):
+        return c.strip()
+    if isinstance(c, list):
+        parts: list[str] = []
+        for block in c:
+            if isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text", "")))
+        return "".join(parts).strip()
+    return ""
 
 
-class GeminiClient:
+class OllamaLLMClient:
+    """
+    Local Ollama HTTP API — free aside from your own machine / electricity.
+    Install: https://ollama.com — then e.g. `ollama pull llama3.2`
+    """
+
     def __init__(self, settings: Settings) -> None:
-        self._client = genai.Client(api_key=settings.gemini_api_key)
-        self._model = settings.gemini_model
+        self._url = f"{settings.ollama_base_url.rstrip('/')}/api/chat"
+        self._model = settings.ollama_model
 
     def _generate(self, prompt: str) -> str:
-        response = self._client.models.generate_content(
-            model=self._model,
-            contents=prompt,
+        r = requests.post(
+            self._url,
+            json={
+                "model": self._model,
+                "messages": [{"role": "user", "content": prompt}],
+                "stream": False,
+            },
+            timeout=300,
         )
-        return _response_text(response)
+        r.raise_for_status()
+        return _message_text(r.json())
 
     def summarize_job_html(
         self,
