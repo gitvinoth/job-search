@@ -62,6 +62,10 @@ def load_settings(config_path: str | Path) -> Settings:
     airtable_base_id = _require_str(data, "airtable_base_id")
     airtable_table_name = _require_str(data, "airtable_table_name")
 
+<<<<<<< HEAD
+=======
+    # Default must be a model ID that exists on generativelanguage.googleapis.com v1beta for AI Studio keys.
+>>>>>>> 8260d818dcf75a3049fc581d90b2ed70c703bf40
     gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash").strip()
     anthropic_model = os.environ.get("ANTHROPIC_MODEL", "claude-3-5-haiku-20241022").strip()
     ollama_base_url = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip().rstrip("/")

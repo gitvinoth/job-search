@@ -38,38 +38,7 @@ cp .env.example .env
 
 Edit **`config.json`**: `job_role`, `location`, `rss_feed_url`, `resume_summary`, `airtable_base_id`, `airtable_table_name`.
 
-### RSS feed URL (`rss_feed_url`)
-
-The collector only reads jobs from **this XML feed**. The example value `https://rss.app/your-feed-id.xml` is **not real** — you will get **404** until you change it.
-
-1. In [RSS.app](https://rss.app/) (or another RSS builder), create a feed that tracks your **job search** (e.g. LinkedIn search results page or another source the product supports).
-2. Copy the feed’s **RSS / XML link** (often ends in `.xml` or contains `/feeds/`).
-3. Paste it into **`rss_feed_url`** in `config.json`.
-4. Check in a browser: you should see **RSS/XML**, not an HTML error or 404.
-
-Edit **`.env`**: `AIRTABLE_TOKEN`, plus **one** LLM backend below.
-
-### LLM: Gemini (default)
-
-- `GEMINI_API_KEY` — required when `LLM_PROVIDER` is unset or `gemini`.
-- Optional `GEMINI_MODEL` (default **`gemini-2.0-flash`**). See [Gemini models](https://ai.google.dev/gemini-api/docs/models/gemini).
-
-If you hit **`429 RESOURCE_EXHAUSTED`** or free-tier **`limit: 0`**, your project has no quota left for that model—wait, upgrade billing, or switch to Claude below. Details: [Gemini rate limits](https://ai.google.dev/gemini-api/docs/rate-limits).
-
-### LLM: Anthropic Claude (alternative)
-
-In **`.env`**:
-
-```bash
-LLM_PROVIDER=anthropic
-ANTHROPIC_API_KEY=sk-ant-api03-...
-# optional; default is a fast Haiku snapshot
-# ANTHROPIC_MODEL=claude-3-5-haiku-20241022
-```
-
-Install deps include the official `anthropic` SDK. Create keys in the [Anthropic Console](https://console.anthropic.com/). **Claude Code** is a separate product (IDE assistant); this app uses the **Messages API** with your API key, same as any Claude API client.
-
-**Note:** “Claudr” / typos aside—this integration is **Anthropic’s Claude API**, not a third-party wrapper.
+Edit **`.env`**: `AIRTABLE_TOKEN`, `GEMINI_API_KEY`. Optional: `GEMINI_MODEL` (default `gemini-1.5-pro`).
 
 ## Run
 
@@ -97,7 +66,7 @@ Schedule with **cron**, **launchd**, **GitHub Actions**, or **Make.com** calling
 | Path | Purpose |
 |------|---------|
 | [MAKE_JOB_AGENT_BLUEPRINT.md](./MAKE_JOB_AGENT_BLUEPRINT.md) | Make.com module mapping and prompts |
-| [job_search/](./job_search/) | Python implementation (`gemini_client`, `anthropic_client`, `llm_common`) |
+| [job_search/](./job_search/) | Python implementation |
 | `config.example.json` | Template for `config.json` (not committed with secrets) |
 | `.env.example` | Template for `.env` |
 
