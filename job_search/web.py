@@ -1,0 +1,379 @@
+"""Flask web dashboard – browse RSS job feeds on localhost."""
+from __future__ import annotations
+
+import logging
+import os
+import time
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from typing import List
+
+from flask import Flask, jsonify, render_template_string, request
+
+from job_search.config import load_settings
+from job_search.local_llm import LocalHeuristicLLM, _strip_html_to_text
+from job_search.rss_client import fetch_feed_items
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Curated RSS feed sources – mix of real aggregator feeds + user feed
+# ---------------------------------------------------------------------------
+DEFAULT_FEEDS: list[dict] = [
+    {
+        "name": "User Feed",
+        "url": "",  # filled from config.json
+        "category": "custom",
+    },
+    {
+        "name": "Hacker News – Who is Hiring?",
+        "url": "https://hnrss.org/whoishiring/jobs",
+        "category": "tech",
+    },
+    {
+        "name": "RemoteOK – Remote Jobs",
+        "url": "https://remoteok.com/remote-jobs.rss",
+        "category": "remote",
+    },
+    {
+        "name": "We Work Remotely",
+        "url": "https://weworkremotely.com/categories/remote-programming-jobs.rss",
+        "category": "remote",
+    },
+    {
+        "name": "GitHub Jobs (via RSS.app)",
+        "url": "",  # placeholder – users can add their own
+        "category": "tech",
+    },
+]
+
+
+@dataclass
+class ScoredJob:
+    title: str
+    link: str
+    description: str
+    summary: str
+    score: int
+    source: str
+    fetched_at: str
+
+
+def _build_app(config_path: str = "config.json") -> Flask:
+    app = Flask(__name__)
+
+    # ---- shared state ----
+    _cache: dict[str, list[ScoredJob]] = {}
+    _last_refresh: dict[str, float] = {}
+    CACHE_TTL = 300  # 5 min
+
+    from dotenv import load_dotenv
+    load_dotenv()
+    settings = load_settings(config_path)
+    llm = LocalHeuristicLLM()
+
+    # Wire user feed
+    feeds = []
+    for f in DEFAULT_FEEDS:
+        if f["name"] == "User Feed":
+            if settings.rss_feed_url:
+                feeds.append({**f, "url": settings.rss_feed_url})
+        elif f["url"]:
+            feeds.append(f)
+
+    def _fetch_and_score(feed: dict) -> list[ScoredJob]:
+        url = feed["url"]
+        if not url:
+            return []
+        now = time.time()
+        if url in _cache and (now - _last_refresh.get(url, 0)) < CACHE_TTL:
+            return _cache[url]
+
+        try:
+            items = fetch_feed_items(url)
+        except Exception as e:
+            logger.warning("Feed %s failed: %s", feed["name"], e)
+            return _cache.get(url, [])
+
+        jobs: list[ScoredJob] = []
+        for item in items:
+            plain = _strip_html_to_text(item.description)
+            summary = llm.summarize_job_html(
+                job_role=settings.job_role,
+                location=settings.location,
+                html_or_text=item.description,
+            )
+            score = llm.match_score(
+                job_summary=summary,
+                job_role=settings.job_role,
+                location=settings.location,
+                resume_summary=settings.resume_summary,
+            )
+            jobs.append(ScoredJob(
+                title=item.title,
+                link=item.link,
+                description=plain[:300],
+                summary=summary,
+                score=score,
+                source=feed["name"],
+                fetched_at=datetime.now().strftime("%Y-%m-%d %H:%M"),
+            ))
+        jobs.sort(key=lambda j: j.score, reverse=True)
+        _cache[url] = jobs
+        _last_refresh[url] = now
+        return jobs
+
+    # ================================================================
+    #  HTML template (single-page, self-contained)
+    # ================================================================
+    HTML = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Job Search Dashboard</title>
+<style>
+:root{--bg:#0f172a;--card:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;
+--accent:#38bdf8;--green:#22c55e;--yellow:#eab308;--red:#ef4444;--orange:#f97316}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+background:var(--bg);color:var(--text);line-height:1.6}
+.container{max-width:1200px;margin:0 auto;padding:20px}
+header{display:flex;justify-content:space-between;align-items:center;padding:20px 0;
+border-bottom:1px solid var(--border);margin-bottom:24px;flex-wrap:wrap;gap:12px}
+h1{font-size:1.6rem;font-weight:700}
+h1 span{color:var(--accent)}
+.stats{display:flex;gap:16px;flex-wrap:wrap}
+.stat{background:var(--card);padding:8px 16px;border-radius:8px;text-align:center;
+border:1px solid var(--border)}
+.stat-val{font-size:1.4rem;font-weight:700;color:var(--accent)}
+.stat-label{font-size:.75rem;color:var(--muted);text-transform:uppercase}
+.controls{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px;align-items:center}
+.controls input,.controls select{background:var(--card);color:var(--text);border:1px solid var(--border);
+padding:8px 12px;border-radius:6px;font-size:.9rem}
+.controls input{flex:1;min-width:200px}
+.controls select{min-width:140px}
+.btn{background:var(--accent);color:#0f172a;border:none;padding:8px 18px;border-radius:6px;
+cursor:pointer;font-weight:600;font-size:.9rem;transition:opacity .2s}
+.btn:hover{opacity:.85}
+.btn.loading{opacity:.5;pointer-events:none}
+.feed-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+.feed-tab{padding:6px 14px;border-radius:20px;font-size:.8rem;cursor:pointer;
+background:var(--card);border:1px solid var(--border);color:var(--muted);transition:all .2s}
+.feed-tab.active{background:var(--accent);color:#0f172a;border-color:var(--accent);font-weight:600}
+.feed-tab .count{margin-left:4px;opacity:.7}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:10px;
+padding:18px;transition:transform .15s,border-color .15s;position:relative;overflow:hidden}
+.card:hover{transform:translateY(-2px);border-color:var(--accent)}
+.card-header{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px}
+.card-title{font-size:1rem;font-weight:600;flex:1}
+.card-title a{color:var(--text);text-decoration:none}
+.card-title a:hover{color:var(--accent)}
+.score-badge{padding:4px 10px;border-radius:20px;font-size:.8rem;font-weight:700;white-space:nowrap}
+.score-high{background:rgba(34,197,94,.15);color:var(--green)}
+.score-med{background:rgba(234,179,8,.15);color:var(--yellow)}
+.score-low{background:rgba(249,115,22,.15);color:var(--orange)}
+.score-none{background:rgba(239,68,68,.1);color:var(--red)}
+.card-desc{font-size:.85rem;color:var(--muted);margin-bottom:10px;
+display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.card-meta{display:flex;justify-content:space-between;font-size:.75rem;color:var(--muted)}
+.source-tag{background:rgba(56,189,248,.1);color:var(--accent);padding:2px 8px;border-radius:4px}
+.empty{text-align:center;padding:60px 20px;color:var(--muted)}
+.empty h2{font-size:1.2rem;margin-bottom:8px;color:var(--text)}
+.bar{position:absolute;top:0;left:0;height:3px;background:var(--accent);transition:width .3s}
+footer{text-align:center;padding:30px 0;color:var(--muted);font-size:.8rem;border-top:1px solid var(--border);margin-top:30px}
+</style>
+</head>
+<body>
+<div class="container">
+<header>
+  <h1>Job <span>Search</span> Dashboard</h1>
+  <div class="stats">
+    <div class="stat"><div class="stat-val" id="totalJobs">-</div><div class="stat-label">Total Jobs</div></div>
+    <div class="stat"><div class="stat-val" id="avgScore">-</div><div class="stat-label">Avg Score</div></div>
+    <div class="stat"><div class="stat-val" id="topMatch">-</div><div class="stat-label">Top Match</div></div>
+    <div class="stat"><div class="stat-val" id="feedCount">-</div><div class="stat-label">Feeds</div></div>
+  </div>
+</header>
+
+<div class="controls">
+  <input type="text" id="search" placeholder="Search jobs by title, description...">
+  <select id="sortBy">
+    <option value="score">Sort by Score</option>
+    <option value="title">Sort by Title</option>
+    <option value="source">Sort by Source</option>
+  </select>
+  <select id="minScore">
+    <option value="0">All Scores</option>
+    <option value="20">Score 20+</option>
+    <option value="40">Score 40+</option>
+    <option value="60">Score 60+</option>
+  </select>
+  <button class="btn" id="refreshBtn" onclick="refresh()">Refresh Feeds</button>
+</div>
+
+<div class="feed-tabs" id="feedTabs"></div>
+<div class="grid" id="grid"></div>
+<div class="empty" id="empty" style="display:none">
+  <h2>No jobs found</h2>
+  <p>Try adjusting your filters or refresh the feeds.</p>
+</div>
+
+<footer>
+  Job Search Dashboard &middot; Targeting: <strong>{{ job_role }}</strong> in <strong>{{ location }}</strong>
+  &middot; Auto-refreshes every 5 min
+</footer>
+</div>
+
+<script>
+let allJobs=[], activeFeed='all';
+
+async function fetchJobs(){
+  const r=await fetch('/api/jobs');
+  return r.json();
+}
+
+function scoreClass(s){
+  if(s>=60) return 'score-high';
+  if(s>=35) return 'score-med';
+  if(s>=15) return 'score-low';
+  return 'score-none';
+}
+
+function renderTabs(jobs){
+  const sources={};
+  jobs.forEach(j=>{sources[j.source]=(sources[j.source]||0)+1});
+  let html=`<div class="feed-tab ${activeFeed==='all'?'active':''}" onclick="setFeed('all')">All<span class="count">(${jobs.length})</span></div>`;
+  Object.entries(sources).sort((a,b)=>b[1]-a[1]).forEach(([s,c])=>{
+    html+=`<div class="feed-tab ${activeFeed===s?'active':''}" onclick="setFeed('${s.replace(/'/g,"\\'")}')">
+      ${s}<span class="count">(${c})</span></div>`;
+  });
+  document.getElementById('feedTabs').innerHTML=html;
+}
+
+function renderGrid(jobs){
+  const q=document.getElementById('search').value.toLowerCase();
+  const sort=document.getElementById('sortBy').value;
+  const minS=parseInt(document.getElementById('minScore').value);
+
+  let filtered=jobs.filter(j=>{
+    if(activeFeed!=='all' && j.source!==activeFeed) return false;
+    if(j.score<minS) return false;
+    if(q && !j.title.toLowerCase().includes(q) && !j.description.toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  if(sort==='title') filtered.sort((a,b)=>a.title.localeCompare(b.title));
+  else if(sort==='source') filtered.sort((a,b)=>a.source.localeCompare(b.source)||b.score-a.score);
+  else filtered.sort((a,b)=>b.score-a.score);
+
+  // stats
+  document.getElementById('totalJobs').textContent=filtered.length;
+  const avg=filtered.length?Math.round(filtered.reduce((s,j)=>s+j.score,0)/filtered.length):0;
+  document.getElementById('avgScore').textContent=avg;
+  document.getElementById('topMatch').textContent=filtered.length?filtered.reduce((m,j)=>Math.max(m,j.score),0):'-';
+  document.getElementById('feedCount').textContent=new Set(jobs.map(j=>j.source)).size;
+
+  if(!filtered.length){
+    document.getElementById('grid').innerHTML='';
+    document.getElementById('empty').style.display='block';
+    return;
+  }
+  document.getElementById('empty').style.display='none';
+
+  document.getElementById('grid').innerHTML=filtered.map(j=>`
+    <div class="card">
+      <div class="bar" style="width:${j.score}%"></div>
+      <div class="card-header">
+        <div class="card-title"><a href="${j.link}" target="_blank" rel="noopener">${esc(j.title)}</a></div>
+        <span class="score-badge ${scoreClass(j.score)}">${j.score}%</span>
+      </div>
+      <div class="card-desc">${esc(j.description)}</div>
+      <div class="card-meta">
+        <span class="source-tag">${esc(j.source)}</span>
+        <span>${j.fetched_at}</span>
+      </div>
+    </div>`).join('');
+}
+
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+
+function setFeed(f){activeFeed=f;renderTabs(allJobs);renderGrid(allJobs);}
+
+async function refresh(){
+  const btn=document.getElementById('refreshBtn');
+  btn.classList.add('loading');btn.textContent='Loading...';
+  try{
+    const data=await fetchJobs();
+    allJobs=data.jobs||[];
+    renderTabs(allJobs);renderGrid(allJobs);
+  }catch(e){console.error(e);}
+  btn.classList.remove('loading');btn.textContent='Refresh Feeds';
+}
+
+document.getElementById('search').addEventListener('input',()=>renderGrid(allJobs));
+document.getElementById('sortBy').addEventListener('change',()=>renderGrid(allJobs));
+document.getElementById('minScore').addEventListener('change',()=>renderGrid(allJobs));
+
+// Initial load + auto-refresh
+refresh();
+setInterval(refresh, 300000);
+</script>
+</body>
+</html>"""
+
+    # ================================================================
+    #  Routes
+    # ================================================================
+    @app.route("/")
+    def index():
+        return render_template_string(HTML, job_role=settings.job_role, location=settings.location)
+
+    @app.route("/api/jobs")
+    def api_jobs():
+        all_jobs: List[ScoredJob] = []
+        for feed in feeds:
+            all_jobs.extend(_fetch_and_score(feed))
+        all_jobs.sort(key=lambda j: j.score, reverse=True)
+        return jsonify({"jobs": [asdict(j) for j in all_jobs], "feeds": len(feeds)})
+
+    @app.route("/api/feeds")
+    def api_feeds():
+        return jsonify({"feeds": feeds})
+
+    @app.route("/api/add-feed", methods=["POST"])
+    def api_add_feed():
+        data = request.get_json(silent=True) or {}
+        url = (data.get("url") or "").strip()
+        name = (data.get("name") or url).strip()
+        if not url:
+            return jsonify({"error": "url required"}), 400
+        feeds.append({"name": name, "url": url, "category": "custom"})
+        return jsonify({"ok": True, "feeds": len(feeds)})
+
+    return app
+
+
+def main():
+    import argparse
+
+    from dotenv import load_dotenv
+    load_dotenv()
+
+    p = argparse.ArgumentParser(description="Job Search Web Dashboard")
+    p.add_argument("--config", default="config.json", help="Path to config JSON")
+    p.add_argument("--port", type=int, default=int(os.environ.get("PORT", 5000)), help="Port (default 5000)")
+    p.add_argument("--host", default="127.0.0.1", help="Host (default 127.0.0.1)")
+    p.add_argument("--debug", action="store_true", help="Flask debug mode")
+    args = p.parse_args()
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+
+    app = _build_app(args.config)
+    print(f"\n  Job Search Dashboard running at http://{args.host}:{args.port}\n")
+    app.run(host=args.host, port=args.port, debug=args.debug)
+
+
+if __name__ == "__main__":
+    main()
