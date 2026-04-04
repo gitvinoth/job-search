@@ -44,9 +44,9 @@ DEFAULT_FEEDS: list[dict] = [
         "category": "indeed",
     },
     {
-        "name": "Indeed – Principal Data Engineer",
-        "url": "",  # Replace with your RSS.app feed for Indeed principal data engineer search
-        "category": "indeed",
+        "name": "Talent500",
+        "url": "https://talent500.com/joblist/?search_term=Data+Engineer&experience_range=6-10+years&offset=0&limit=20",  # Replace with your RSS.app feed for Indeed principal data engineer search
+        "category": "tech",
     },
     # ---- LinkedIn (via RSS.app – replace with your feed) ----
     {
