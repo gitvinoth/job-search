@@ -103,3 +103,13 @@ pip uninstall -y google-generativeai
 ```
 
 This project uses `from google import genai` ([migration guide](https://ai.google.dev/gemini-api/docs/migrate)).
+
+### `ImportError: cannot import name 'genai' from 'google'`
+
+The legacy **`google-generativeai`** package installs `google/generativeai` and prevents the new SDK from exposing `google.genai`. Fix:
+
+```bash
+pip uninstall -y google-generativeai
+pip install -r requirements.txt
+python -c "from google import genai; print('ok')"
+```
