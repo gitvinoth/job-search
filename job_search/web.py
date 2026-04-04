@@ -3,22 +3,75 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import List
 
+import requests as http_requests
 from flask import Flask, jsonify, render_template_string, request
 
 from job_search.config import load_settings
 from job_search.local_llm import LocalHeuristicLLM, _strip_html_to_text
-from job_search.rss_client import fetch_feed_items
+from job_search.rss_client import JobFeedItem, fetch_feed_items
 
 logger = logging.getLogger(__name__)
 
+
 # ---------------------------------------------------------------------------
-# Curated RSS feed sources – mix of real aggregator feeds + user feed
+# Talent500 HTML scraper (no RSS/API available — scrape the job list page)
 # ---------------------------------------------------------------------------
+def _fetch_talent500_jobs(url: str) -> list[JobFeedItem]:
+    """Fetch Talent500 jobs via their XML sitemap and filter by search term.
+
+    Talent500 is fully JS-rendered with a private API, but their sitemap
+    at /jobs-sitemap.xml lists every job URL.  We parse the sitemap,
+    filter URLs by keyword, and derive title/company/location from the
+    URL slug (e.g. /jobs/company/title-location-ID/).
+    """
+    # Extract search_term from the original URL for filtering
+    search_m = re.search(r'search_term=([^&]+)', url)
+    keywords = search_m.group(1).replace("+", " ").lower().split() if search_m else ["data", "engineer"]
+
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; JobSearchCollector/0.1)"}
+    r = http_requests.get(
+        "https://talent500.com/jobs-sitemap.xml",
+        headers=headers, timeout=30,
+    )
+    r.raise_for_status()
+
+    # Parse all job URLs from sitemap
+    all_urls = re.findall(r'<loc>(https://talent500\.com/jobs/[^<]+)</loc>', r.text)
+
+    items: list[JobFeedItem] = []
+    for job_url in all_urls:
+        # URL format: /jobs/company/slug-with-title-location-T500-ID/
+        slug = job_url.rstrip("/").split("/")[-1]  # e.g. "senior-data-engineer-bengaluru-T500-24860"
+        slug_lower = slug.lower()
+
+        # Filter: all keywords must appear in the slug
+        if not all(kw in slug_lower for kw in keywords):
+            continue
+
+        # Derive title from slug: remove T500-ID suffix, replace hyphens with spaces
+        clean = re.sub(r'-t500-\d+$', '', slug, flags=re.IGNORECASE)
+        parts = clean.replace("-", " ").title()
+
+        # Extract company from URL path
+        company = job_url.rstrip("/").split("/")[-2].replace("-", " ").title()
+
+        title = f"{parts} @ {company}"
+        desc = f"{parts} — {company} (Talent500)"
+
+        items.append(JobFeedItem(title=title, link=job_url, description=desc))
+
+    logger.info("Talent500 sitemap: found %d matching jobs (keywords=%s, total=%d)",
+                len(items), keywords, len(all_urls))
+    return items
+
+
+
 DEFAULT_FEEDS: list[dict] = [
     {
         "name": "User Feed",
@@ -45,8 +98,8 @@ DEFAULT_FEEDS: list[dict] = [
     },
     {
         "name": "Talent500",
-        "url": "https://talent500.com/joblist/?search_term=Data+Engineer&experience_range=6-10+years&offset=0&limit=20",  # Replace with your RSS.app feed for Indeed principal data engineer search
-        "category": "tech",
+        "url": "https://talent500.com/joblist/?search_term=Data+Engineer&experience_range=6-10+years&offset=0&limit=20",
+        "category": "talent500",
     },
     # ---- LinkedIn (via RSS.app – replace with your feed) ----
     {
@@ -120,7 +173,10 @@ def _build_app(config_path: str = "config.json") -> Flask:
             return _cache[url]
 
         try:
-            items = fetch_feed_items(url)
+            if feed.get("category") == "talent500":
+                items = _fetch_talent500_jobs(url)
+            else:
+                items = fetch_feed_items(url)
         except Exception as e:
             logger.warning("Feed %s failed: %s", feed["name"], e)
             return _cache.get(url, [])
