@@ -2,30 +2,29 @@ from __future__ import annotations
 
 import re
 
-from google import genai
+import anthropic
 
 from job_search.config import Settings
 from job_search.llm_common import MAX_HTML_CHARS, match_prompt, summarize_prompt, truncate
 
 
-def _response_text(response: object) -> str:
-    try:
-        return (getattr(response, "text", None) or "").strip()
-    except Exception:
-        return ""
+class AnthropicLLMClient:
+    """Anthropic Claude API — use when Gemini quota is exhausted (set LLM_PROVIDER=anthropic)."""
 
-
-class GeminiClient:
     def __init__(self, settings: Settings) -> None:
-        self._client = genai.Client(api_key=settings.gemini_api_key)
-        self._model = settings.gemini_model
+        self._client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        self._model = settings.anthropic_model
 
     def _generate(self, prompt: str) -> str:
-        response = self._client.models.generate_content(
+        msg = self._client.messages.create(
             model=self._model,
-            contents=prompt,
+            max_tokens=2048,
+            messages=[{"role": "user", "content": prompt}],
         )
-        return _response_text(response)
+        if not msg.content:
+            return ""
+        block = msg.content[0]
+        return (getattr(block, "text", None) or "").strip()
 
     def summarize_job_html(
         self,

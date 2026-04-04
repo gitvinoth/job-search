@@ -1,6 +1,6 @@
 # job-search
 
-Runnable **Daily Job Collector** (RSS → optional HTML fetch → **Gemini** → **Airtable**) plus a [Make.com blueprint](./MAKE_JOB_AGENT_BLUEPRINT.md). **Job role**, **location**, and **RSS URL** live in `config.json` so you can retarget searches without code changes.
+Runnable **Daily Job Collector** (RSS → optional HTML fetch → **Gemini or Claude** → **Airtable**) plus a [Make.com blueprint](./MAKE_JOB_AGENT_BLUEPRINT.md). **Job role**, **location**, and **RSS URL** live in `config.json` so you can retarget searches without code changes.
 
 Repository: [github.com/gitvinoth/job-search](https://github.com/gitvinoth/job-search)
 
@@ -8,7 +8,7 @@ Repository: [github.com/gitvinoth/job-search](https://github.com/gitvinoth/job-s
 
 - Python 3.10+
 - [Airtable](https://airtable.com/) base with a table and [personal access token](https://airtable.com/create/tokens)
-- [Google AI Studio](https://aistudio.google.com/) API key for Gemini
+- **Either** a [Google AI Studio](https://aistudio.google.com/) API key (Gemini), **or** an [Anthropic Console](https://console.anthropic.com/) API key (Claude)
 
 ## Airtable table (required field names)
 
@@ -47,7 +47,29 @@ The collector only reads jobs from **this XML feed**. The example value `https:/
 3. Paste it into **`rss_feed_url`** in `config.json`.
 4. Check in a browser: you should see **RSS/XML**, not an HTML error or 404.
 
-Edit **`.env`**: `AIRTABLE_TOKEN`, `GEMINI_API_KEY`. Optional: `GEMINI_MODEL` (default **`gemini-2.0-flash`**; `gemini-1.5-pro` often returns 404 on the AI Studio API—pick a model from the [Gemini models doc](https://ai.google.dev/gemini-api/docs/models/gemini)).
+Edit **`.env`**: `AIRTABLE_TOKEN`, plus **one** LLM backend below.
+
+### LLM: Gemini (default)
+
+- `GEMINI_API_KEY` — required when `LLM_PROVIDER` is unset or `gemini`.
+- Optional `GEMINI_MODEL` (default **`gemini-2.0-flash`**). See [Gemini models](https://ai.google.dev/gemini-api/docs/models/gemini).
+
+If you hit **`429 RESOURCE_EXHAUSTED`** or free-tier **`limit: 0`**, your project has no quota left for that model—wait, upgrade billing, or switch to Claude below. Details: [Gemini rate limits](https://ai.google.dev/gemini-api/docs/rate-limits).
+
+### LLM: Anthropic Claude (alternative)
+
+In **`.env`**:
+
+```bash
+LLM_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-api03-...
+# optional; default is a fast Haiku snapshot
+# ANTHROPIC_MODEL=claude-3-5-haiku-20241022
+```
+
+Install deps include the official `anthropic` SDK. Create keys in the [Anthropic Console](https://console.anthropic.com/). **Claude Code** is a separate product (IDE assistant); this app uses the **Messages API** with your API key, same as any Claude API client.
+
+**Note:** “Claudr” / typos aside—this integration is **Anthropic’s Claude API**, not a third-party wrapper.
 
 ## Run
 
@@ -58,7 +80,7 @@ python -m job_search --config config.json
 # Plan only: dedupe + AI, no Airtable creates
 python -m job_search --config config.json --dry-run
 
-# No Gemini (RSS description only, match score 0)
+# No LLM (RSS description only, match score 0)
 python -m job_search --config config.json --no-ai
 
 # Rate limit: 30s between job page fetches (default)
@@ -75,7 +97,7 @@ Schedule with **cron**, **launchd**, **GitHub Actions**, or **Make.com** calling
 | Path | Purpose |
 |------|---------|
 | [MAKE_JOB_AGENT_BLUEPRINT.md](./MAKE_JOB_AGENT_BLUEPRINT.md) | Make.com module mapping and prompts |
-| [job_search/](./job_search/) | Python implementation |
+| [job_search/](./job_search/) | Python implementation (`gemini_client`, `anthropic_client`, `llm_common`) |
 | `config.example.json` | Template for `config.json` (not committed with secrets) |
 | `.env.example` | Template for `.env` |
 

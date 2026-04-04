@@ -3,15 +3,46 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, replace
+from typing import Protocol
 
 import requests
 
 from job_search.airtable_client import AirtableClient
 from job_search.config import Settings, load_settings
-from job_search.gemini_client import GeminiClient
-from job_search.rss_client import JobFeedItem, fetch_feed_items
+from job_search.rss_client import fetch_feed_items
 
 logger = logging.getLogger(__name__)
+
+
+class JobLLM(Protocol):
+    def summarize_job_html(
+        self, *, job_role: str, location: str, html_or_text: str
+    ) -> str: ...
+
+    def match_score(
+        self,
+        *,
+        job_summary: str,
+        job_role: str,
+        location: str,
+        resume_summary: str,
+    ) -> int: ...
+
+
+def _has_llm_credentials(settings: Settings) -> bool:
+    if settings.llm_provider == "anthropic":
+        return bool(settings.anthropic_api_key)
+    return bool(settings.gemini_api_key)
+
+
+def _make_llm(settings: Settings) -> JobLLM:
+    if settings.llm_provider == "anthropic":
+        from job_search.anthropic_client import AnthropicLLMClient
+
+        return AnthropicLLMClient(settings)
+    from job_search.gemini_client import GeminiClient
+
+    return GeminiClient(settings)
 
 
 @dataclass
@@ -42,11 +73,21 @@ def run(options: RunOptions) -> int:
     if not options.dry_run and not settings.airtable_token:
         logger.error("AIRTABLE_TOKEN is not set (required for live runs)")
         return 1
-    if not options.dry_run and not options.no_ai and not settings.gemini_api_key:
-        logger.error("GEMINI_API_KEY is not set (or use --no-ai)")
-        return 1
-    if options.dry_run and not options.no_ai and not settings.gemini_api_key:
-        logger.warning("dry-run: GEMINI_API_KEY missing; using RSS text only for summary")
+
+    if not options.dry_run and not options.no_ai:
+        if settings.llm_provider == "anthropic" and not settings.anthropic_api_key:
+            logger.error(
+                "ANTHROPIC_API_KEY is not set (or set LLM_PROVIDER=gemini with GEMINI_API_KEY, or use --no-ai)"
+            )
+            return 1
+        if settings.llm_provider == "gemini" and not settings.gemini_api_key:
+            logger.error(
+                "GEMINI_API_KEY is not set (or set LLM_PROVIDER=anthropic with ANTHROPIC_API_KEY, or use --no-ai)"
+            )
+            return 1
+
+    if options.dry_run and not options.no_ai and not _has_llm_credentials(settings):
+        logger.warning("dry-run: no LLM API key for provider %s; using RSS text only", settings.llm_provider)
         options = replace(options, no_ai=True)
 
     try:
@@ -55,9 +96,10 @@ def run(options: RunOptions) -> int:
         logger.error("RSS fetch failed: %s", e)
         return 1
 
-    ai: GeminiClient | None = None
-    if not options.no_ai and settings.gemini_api_key:
-        ai = GeminiClient(settings)
+    ai: JobLLM | None = None
+    if not options.no_ai and _has_llm_credentials(settings):
+        ai = _make_llm(settings)
+        logger.info("LLM provider: %s", settings.llm_provider)
 
     at: AirtableClient | None = None
     if settings.airtable_token:
@@ -113,7 +155,7 @@ def run(options: RunOptions) -> int:
                     resume_summary=settings.resume_summary,
                 )
             except Exception as e:
-                logger.error("Gemini failed for %s: %s", item.link, e)
+                logger.error("LLM failed for %s: %s", item.link, e)
                 continue
 
         if options.dry_run:
@@ -154,10 +196,10 @@ def run_from_argv(argv: list[str] | None = None) -> int:
 
     load_dotenv()
 
-    p = argparse.ArgumentParser(description="Job collector: RSS → scrape → Gemini → Airtable")
+    p = argparse.ArgumentParser(description="Job collector: RSS → scrape → LLM → Airtable")
     p.add_argument("--config", default="config.json", help="Path to config JSON")
     p.add_argument("--dry-run", action="store_true", help="Do not write to Airtable")
-    p.add_argument("--no-ai", action="store_true", help="Skip Gemini; summary from RSS only")
+    p.add_argument("--no-ai", action="store_true", help="Skip LLM; summary from RSS only")
     p.add_argument("--max", type=int, default=25, dest="max_jobs", help="Max new jobs per run")
     p.add_argument(
         "--sleep",

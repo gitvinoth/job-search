@@ -15,9 +15,12 @@ class Settings:
     resume_summary: str
     airtable_base_id: str
     airtable_table_name: str
+    llm_provider: str  # "gemini" | "anthropic"
     gemini_model: str
+    anthropic_model: str
     airtable_token: str
     gemini_api_key: str
+    anthropic_api_key: str
 
 
 def _validate_rss_feed_url(url: str) -> None:
@@ -58,10 +61,14 @@ def load_settings(config_path: str | Path) -> Settings:
     airtable_table_name = _require_str(data, "airtable_table_name")
 
     # Default must be a model ID that exists on generativelanguage.googleapis.com v1beta for AI Studio keys.
-    # gemini-1.5-pro often 404s on that API; see https://ai.google.dev/gemini-api/docs/models/gemini
     gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash").strip()
+    anthropic_model = os.environ.get("ANTHROPIC_MODEL", "claude-3-5-haiku-20241022").strip()
     airtable_token = os.environ.get("AIRTABLE_TOKEN", "").strip()
     gemini_api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+
+    raw_provider = os.environ.get("LLM_PROVIDER", "gemini").strip().lower()
+    llm_provider = raw_provider if raw_provider in ("gemini", "anthropic") else "gemini"
 
     return Settings(
         job_role=job_role,
@@ -70,7 +77,10 @@ def load_settings(config_path: str | Path) -> Settings:
         resume_summary=resume_summary,
         airtable_base_id=airtable_base_id,
         airtable_table_name=airtable_table_name,
+        llm_provider=llm_provider,
         gemini_model=gemini_model,
+        anthropic_model=anthropic_model,
         airtable_token=airtable_token,
         gemini_api_key=gemini_api_key,
+        anthropic_api_key=anthropic_api_key,
     )
