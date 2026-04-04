@@ -25,6 +25,36 @@ DEFAULT_FEEDS: list[dict] = [
         "url": "",  # filled from config.json
         "category": "custom",
     },
+
+    # ---- Indeed ----
+    # Create RSS.app feeds from: https://www.indeed.com/jobs?q=data+engineer&l=Remote
+    {
+        "name": "Indeed – Data Engineer",
+        "url": "",  # Replace with your RSS.app feed for Indeed data engineer search
+        "category": "indeed",
+    },
+    {
+        "name": "Indeed – Senior Data Engineer",
+        "url": "",  # Replace with your RSS.app feed for Indeed senior data engineer search
+        "category": "indeed",
+    },
+    {
+        "name": "Indeed – Staff Data Engineer",
+        "url": "",  # Replace with your RSS.app feed for Indeed staff data engineer search
+        "category": "indeed",
+    },
+    {
+        "name": "Indeed – Principal Data Engineer",
+        "url": "",  # Replace with your RSS.app feed for Indeed principal data engineer search
+        "category": "indeed",
+    },
+    # ---- LinkedIn (via RSS.app – replace with your feed) ----
+    {
+        "name": "LinkedIn – Data Engineer (RSS.app)",
+        "url": "https://rss.app/feeds/6dUWERqAQ0aEHTu1.xml",
+        "category": "linkedin",
+    },
+
     {
         "name": "Hacker News – Who is Hiring?",
         "url": "https://hnrss.org/whoishiring/jobs",
