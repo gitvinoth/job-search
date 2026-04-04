@@ -47,7 +47,7 @@ The collector only reads jobs from **this XML feed**. The example value `https:/
 3. Paste it into **`rss_feed_url`** in `config.json`.
 4. Check in a browser: you should see **RSS/XML**, not an HTML error or 404.
 
-Edit **`.env`**: `AIRTABLE_TOKEN`, `GEMINI_API_KEY`. Optional: `GEMINI_MODEL` (default `gemini-1.5-pro`).
+Edit **`.env`**: `AIRTABLE_TOKEN`, `GEMINI_API_KEY`. Optional: `GEMINI_MODEL` (default **`gemini-2.0-flash`**; `gemini-1.5-pro` often returns 404 on the AI Studio API—pick a model from the [Gemini models doc](https://ai.google.dev/gemini-api/docs/models/gemini)).
 
 ## Run
 
@@ -113,3 +113,13 @@ pip uninstall -y google-generativeai
 pip install -r requirements.txt
 python -c "from google import genai; print('ok')"
 ```
+
+### Gemini API `404 NOT_FOUND` for `models/gemini-1.5-pro`
+
+The AI Studio endpoint may not expose that model ID. Use a current ID, for example set in **`.env`**:
+
+```bash
+GEMINI_MODEL=gemini-2.0-flash
+```
+
+The project default is **`gemini-2.0-flash`**. See [available models](https://ai.google.dev/gemini-api/docs/models/gemini).

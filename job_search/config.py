@@ -57,7 +57,9 @@ def load_settings(config_path: str | Path) -> Settings:
     airtable_base_id = _require_str(data, "airtable_base_id")
     airtable_table_name = _require_str(data, "airtable_table_name")
 
-    gemini_model = os.environ.get("GEMINI_MODEL", "gemini-1.5-pro").strip()
+    # Default must be a model ID that exists on generativelanguage.googleapis.com v1beta for AI Studio keys.
+    # gemini-1.5-pro often 404s on that API; see https://ai.google.dev/gemini-api/docs/models/gemini
+    gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash").strip()
     airtable_token = os.environ.get("AIRTABLE_TOKEN", "").strip()
     gemini_api_key = os.environ.get("GEMINI_API_KEY", "").strip()
 
