@@ -1,0 +1,148 @@
+[
+  {
+    "enabled": true,
+    "name": "RemoteOK",
+    "type": "rss",
+    "url": "https://remoteok.com/remote-jobs.rss"
+  },
+  {
+    "enabled": true,
+    "name": "We Work Remotely – Programming",
+    "type": "rss",
+    "url": "https://weworkremotely.com/categories/remote-programming-jobs.rss"
+  },
+  {
+    "enabled": true,
+    "name": "We Work Remotely – DevOps",
+    "type": "rss",
+    "url": "https://weworkremotely.com/categories/remote-devops-sysadmin-jobs.rss"
+  },
+  {
+    "_comment": "URL is built dynamically from job_role in settings. Leave empty for auto-config.",
+    "enabled": true,
+    "name": "Talent500",
+    "type": "talent500",
+    "url": ""
+  },
+  {
+    "enabled": true,
+    "name": "Jobspresso",
+    "type": "rss",
+    "url": "https://jobspresso.co/feed/"
+  },
+  {
+    "_setup": "Create RSS.app feed from: https://www.linkedin.com/jobs/search/?keywords=YOUR_ROLE",
+    "enabled": false,
+    "name": "LinkedIn Jobs",
+    "type": "rss",
+    "url": ""
+  },
+  {
+    "_setup": "Create RSS.app feed from: https://www.indeed.com/jobs?q=YOUR_ROLE&l=Remote",
+    "enabled": false,
+    "name": "Indeed",
+    "type": "rss",
+    "url": ""
+  },
+  {
+    "_setup": "Create RSS.app feed from: https://www.glassdoor.com/Job/YOUR_ROLE-jobs-SRCH_KO0,13.htm",
+    "enabled": false,
+    "name": "Glassdoor",
+    "type": "rss",
+    "url": ""
+  },
+  {
+    "_setup": "Create RSS.app feed from: https://boards.greenhouse.io/embed/job_board?for=COMPANY",
+    "enabled": false,
+    "name": "Greenhouse.io",
+    "type": "rss",
+    "url": ""
+  },
+  {
+    "_setup": "Create RSS.app feed from: https://www.google.com/search?q=YOUR_ROLE+jobs&ibp=htl;jobs",
+    "enabled": false,
+    "name": "Google Jobs",
+    "type": "rss",
+    "url": ""
+  },
+  {
+    "_setup": "Wellfound blocks scrapers (403). Use RSS.app or browser extension.",
+    "base_url": "https://wellfound.com",
+    "enabled": false,
+    "link_pattern": "href=\"(/jobs/[^\"]+)\"",
+    "name": "Wellfound",
+    "type": "html_scraper",
+    "url": "https://wellfound.com/role/r/data-engineer"
+  },
+  {
+    "_setup": "RSS feed returns 404. Site may have moved to empllo.com.",
+    "enabled": false,
+    "name": "TryRemotely",
+    "type": "rss",
+    "url": "https://tryremotely.com/rss"
+  },
+  {
+    "_setup": "Toptal blocks scrapers (403). Check their careers page manually.",
+    "base_url": "https://www.toptal.com",
+    "enabled": false,
+    "link_pattern": "href=\"(/careers/[^\"]+)\"",
+    "name": "Toptal",
+    "type": "html_scraper",
+    "url": "https://www.toptal.com/careers"
+  },
+  {
+    "_setup": "RSS feed returns 404. Site may be discontinued.",
+    "enabled": false,
+    "name": "NoDesk",
+    "type": "rss",
+    "url": "https://nodesk.co/remote-jobs.rss"
+  },
+  {
+    "_setup": "RSS feed is malformed. Check site manually.",
+    "enabled": false,
+    "name": "JSRemotely",
+    "type": "rss",
+    "url": "https://jsremotely.com/feed.xml"
+  },
+  {
+    "_setup": "FlexJobs requires a paid account. Create RSS.app feed from your search page.",
+    "enabled": false,
+    "name": "FlexJobs",
+    "type": "rss",
+    "url": ""
+  },
+  {
+    "_setup": "Jobs page returns 404. Check if URL has changed.",
+    "base_url": "",
+    "enabled": false,
+    "link_pattern": "href=\"(https://www\\.uplers\\.com/jobs/[^\"]+)\"",
+    "name": "Uplers",
+    "type": "html_scraper",
+    "url": "https://www.uplers.com/jobs/"
+  },
+  {
+    "_setup": "Page returns 404. Site may have changed URLs.",
+    "base_url": "https://www.hirist.tech",
+    "enabled": false,
+    "link_pattern": "href=\"(/j/[^\"]+)\"",
+    "name": "Hirist",
+    "type": "html_scraper",
+    "url": "https://www.hirist.tech/data-engineer-jobs"
+  },
+  {
+    "base_url": "https://cutshort.io",
+    "enabled": true,
+    "link_pattern": "href=\"(/job/[^\"]+)\"",
+    "name": "Cutshort",
+    "type": "html_scraper",
+    "url": "https://cutshort.io/jobs/data-engineer"
+  },
+  {
+    "base_url": "https://www.crossover.com",
+    "enabled": true,
+    "link_pattern": "href=\"(/jobs/[^\"]+)\"",
+    "name": "Crossover",
+    "type": "html_scraper",
+    "url": "https://www.crossover.com/jobs"
+  }
+]
