@@ -38,6 +38,15 @@ cp .env.example .env
 
 Edit **`config.json`**: `job_role`, `location`, `rss_feed_url`, `resume_summary`, `airtable_base_id`, `airtable_table_name`.
 
+### RSS feed URL (`rss_feed_url`)
+
+The collector only reads jobs from **this XML feed**. The example value `https://rss.app/your-feed-id.xml` is **not real** — you will get **404** until you change it.
+
+1. In [RSS.app](https://rss.app/) (or another RSS builder), create a feed that tracks your **job search** (e.g. LinkedIn search results page or another source the product supports).
+2. Copy the feed’s **RSS / XML link** (often ends in `.xml` or contains `/feeds/`).
+3. Paste it into **`rss_feed_url`** in `config.json`.
+4. Check in a browser: you should see **RSS/XML**, not an HTML error or 404.
+
 Edit **`.env`**: `AIRTABLE_TOKEN`, `GEMINI_API_KEY`. Optional: `GEMINI_MODEL` (default `gemini-1.5-pro`).
 
 ## Run

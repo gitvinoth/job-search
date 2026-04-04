@@ -20,6 +20,17 @@ class Settings:
     gemini_api_key: str
 
 
+def _validate_rss_feed_url(url: str) -> None:
+    """Reject template URLs so users get a clear message instead of HTTP 404."""
+    u = url.lower()
+    if "your-feed-id" in u or "example.com" in u or u.endswith("/your-feed-id.xml"):
+        raise ValueError(
+            "config.json: rss_feed_url is still a placeholder. Replace it with your real RSS/XML "
+            "feed URL (e.g. from rss.app after you create a feed for your job search). "
+            "Open the feed URL in a browser — it should show XML, not a 404 page."
+        )
+
+
 def _require_str(data: dict[str, Any], key: str) -> str:
     v = data.get(key)
     if not isinstance(v, str) or not v.strip():
@@ -41,6 +52,7 @@ def load_settings(config_path: str | Path) -> Settings:
     job_role = _require_str(data, "job_role")
     location = _require_str(data, "location")
     rss_feed_url = _require_str(data, "rss_feed_url")
+    _validate_rss_feed_url(rss_feed_url)
     resume_summary = _require_str(data, "resume_summary")
     airtable_base_id = _require_str(data, "airtable_base_id")
     airtable_table_name = _require_str(data, "airtable_table_name")
