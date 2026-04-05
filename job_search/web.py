@@ -4,6 +4,7 @@ from __future__ import annotations
 import json as _json
 import logging
 import os
+import threading
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -14,8 +15,13 @@ from urllib.parse import quote_plus
 from flask import Flask, jsonify, render_template_string, request
 
 from job_search.config import load_settings
+from job_search.health_checker import check_portals, update_portal_health
 from job_search.local_llm import LocalHeuristicLLM, _strip_html_to_text
 from job_search.portals import fetch_portal_jobs
+from job_search.source_registry import (
+    add_source, deduplicate, load_registry, remove_source,
+    save_registry, summary, toggle_source,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +77,17 @@ def _build_talent500_url(job_role: str) -> str:
     return f"https://talent500.com/joblist/?search_term={quote_plus(first_role)}"
 
 
+def _build_dynamic_url(template: str, job_role: str, location: str) -> str:
+    """Resolve a dynamic URL template using the current job_role and location."""
+    if not template:
+        return ""
+    return (
+        template
+        .replace("{job_role}", quote_plus(job_role))
+        .replace("{location}", quote_plus(location))
+    )
+
+
 def _build_app(config_path: str = "config.json") -> Flask:
     app = Flask(__name__)
 
@@ -92,24 +109,70 @@ def _build_app(config_path: str = "config.json") -> Flask:
         "resume_summary": settings.resume_summary,
     }
 
-    # Load portals from config
+    # Load portals via normalized registry
     portals_path = os.path.join(os.path.dirname(os.path.abspath(config_path)), "portals.json")
-    portals: list[dict] = _load_portals(portals_path)
+    portals: list[dict] = load_registry(portals_path)
+    portals = deduplicate(portals)
 
-    # Wire Talent500 URL from settings if empty
+    # Wire dynamic URLs from settings
     for p in portals:
         if p.get("type") == "talent500" and not p.get("url"):
             p["url"] = _build_talent500_url(_live["job_role"])
+        elif p.get("type") == "dynamic_rss" and not p.get("url"):
+            p["url"] = _build_dynamic_url(
+                p.get("url_template", ""), _live["job_role"], _live["location"]
+            )
 
     # Add user RSS feed if configured (runtime-only, not persisted to portals.json)
     if settings.rss_feed_url and "your-feed-id" not in settings.rss_feed_url.lower():
         portals.insert(0, {
+            "id": "_user_feed",
             "name": "User Feed",
             "type": "rss",
             "url": settings.rss_feed_url,
+            "category": "general",
             "enabled": True,
             "_runtime": True,
         })
+
+    # ---- Health state ----
+    _health_status: dict[str, dict] = {}
+    _health_running = {"active": False}
+
+    def _run_health_checks() -> None:
+        if _health_running["active"]:
+            return
+        _health_running["active"] = True
+        try:
+            active = [p for p in portals if not p.get("_runtime")]
+            results = check_portals(active)
+            for source_id, result in results.items():
+                _health_status[source_id] = result.to_dict()
+                # Update portal health fields in-place
+                for p in portals:
+                    if (p.get("id") or p.get("name")) == source_id:
+                        update_portal_health(p, result)
+                        break
+            # Persist updated reliability scores
+            try:
+                save_registry(portals_path, portals)
+            except Exception as save_err:
+                logger.warning("Could not save health state: %s", save_err)
+        finally:
+            _health_running["active"] = False
+
+    def _health_scheduler() -> None:
+        """Background thread: run health checks every hour."""
+        time.sleep(60)          # first check 60s after startup
+        while True:
+            try:
+                _run_health_checks()
+            except Exception as exc:
+                logger.warning("Scheduled health check error: %s", exc)
+            time.sleep(3600)    # then every hour
+
+    _scheduler_thread = threading.Thread(target=_health_scheduler, daemon=True)
+    _scheduler_thread.start()
 
     def _active_portals() -> list[dict]:
         return [p for p in portals if p.get("enabled", True) and p.get("url")]
@@ -297,6 +360,47 @@ font-size:.7rem;margin-left:5px}
 .modal-overlay{display:none;position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.6);
 align-items:center;justify-content:center}
 .modal-overlay.open{display:flex}
+/* Sources panel */
+.cat-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.cat-tab{padding:3px 10px;border-radius:14px;font-size:.75rem;cursor:pointer;
+background:var(--bg);border:1px solid var(--border);color:var(--muted);transition:all .2s}
+.cat-tab.active{background:var(--accent);color:#0f172a;border-color:var(--accent);font-weight:600}
+.src-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;
+max-height:55vh;overflow-y:auto;padding-right:4px}
+.src-card{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;
+position:relative;transition:border-color .15s}
+.src-card:hover{border-color:var(--accent)}
+.src-card.disabled{opacity:.5}
+.src-header{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.health-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.h-healthy{background:var(--green)}.h-degraded{background:var(--yellow)}
+.h-down{background:var(--red)}.h-unknown{background:var(--muted)}
+.src-name{font-size:.88rem;font-weight:600;flex:1}
+.src-badges{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px}
+.src-badge{padding:1px 6px;border-radius:4px;font-size:.68rem}
+.badge-type{background:rgba(56,189,248,.1);color:var(--accent)}
+.badge-cat{background:rgba(167,139,250,.1);color:var(--purple)}
+.badge-freq{background:rgba(34,197,94,.1);color:var(--green)}
+.src-meta{font-size:.73rem;color:var(--muted);margin-bottom:8px}
+.src-meta a{color:var(--accent);text-decoration:none;word-break:break-all}
+.src-footer{display:flex;align-items:center;justify-content:space-between;margin-top:auto}
+.reliability-bar{flex:1;height:4px;background:var(--border);border-radius:2px;margin:0 8px}
+.reliability-fill{height:100%;border-radius:2px;background:var(--green);transition:width .3s}
+.toggle-btn{font-size:.72rem;padding:2px 9px;border-radius:4px;cursor:pointer;border:1px solid;
+transition:all .2s}
+.toggle-on{background:rgba(34,197,94,.1);color:var(--green);border-color:var(--green)}
+.toggle-off{background:rgba(239,68,68,.1);color:var(--red);border-color:var(--red)}
+.src-setup{font-size:.72rem;color:var(--yellow);margin-top:4px;
+background:rgba(234,179,8,.05);border-radius:4px;padding:4px 6px}
+/* Add-source form */
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.form-row.full{grid-template-columns:1fr}
+.form-group{margin-bottom:8px}
+.form-group label{display:block;font-size:.8rem;color:var(--muted);margin-bottom:3px}
+.form-group input,.form-group select,.form-group textarea{
+width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);
+padding:7px 10px;border-radius:6px;font-size:.84rem}
+.form-group textarea{resize:vertical}
 .modal{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;
 width:90%;max-width:600px;max-height:90vh;overflow-y:auto}
 .modal h2{font-size:1.1rem;margin-bottom:14px}
@@ -415,6 +519,7 @@ border-top:1px solid var(--border);margin-top:20px}
     <option value="newest">Sort: Newest</option>
   </select>
   <button class="btn" id="refreshBtn" onclick="refresh()">Refresh</button>
+  <button class="btn btn-secondary" onclick="openSources()">Sources</button>
   <button class="btn btn-secondary" onclick="openSettings()">Settings</button>
 </div>
 
@@ -423,6 +528,98 @@ border-top:1px solid var(--border);margin-top:20px}
 <div class="empty" id="empty" style="display:none">
   <h2>No jobs found</h2>
   <p>Try adjusting your filters, add more portals, or configure your job role in Settings.</p>
+</div>
+
+<!-- Sources Modal -->
+<div id="sourcesModal" class="modal-overlay" onclick="if(event.target===this)closeSources()">
+  <div class="modal" style="max-width:860px;width:95%">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h2>Job Sources <span id="srcCountBadge" style="font-size:.8rem;color:var(--muted);font-weight:400"></span></h2>
+      <button onclick="closeSources()" style="background:none;border:none;color:var(--muted);font-size:1.5rem;cursor:pointer">&times;</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+      <button class="btn btn-secondary" id="healthCheckBtn" onclick="runHealthCheck()" style="font-size:.8rem;padding:5px 12px">&#9679; Check Health</button>
+      <button class="btn" onclick="openAddSource()" style="font-size:.8rem;padding:5px 12px">+ Add Source</button>
+      <span id="healthCheckStatus" style="font-size:.78rem;color:var(--muted)"></span>
+    </div>
+    <div class="cat-tabs" id="srcCategoryTabs">
+      <span class="cat-tab active" onclick="filterSrcCat('all')">All</span>
+      <span class="cat-tab" onclick="filterSrcCat('remote')">Remote</span>
+      <span class="cat-tab" onclick="filterSrcCat('startup')">Startup</span>
+      <span class="cat-tab" onclick="filterSrcCat('enterprise')">Enterprise</span>
+      <span class="cat-tab" onclick="filterSrcCat('freelance')">Freelance</span>
+      <span class="cat-tab" onclick="filterSrcCat('general')">General</span>
+    </div>
+    <div class="src-grid" id="srcGrid"></div>
+  </div>
+</div>
+
+<!-- Add Source Modal -->
+<div id="addSourceModal" class="modal-overlay" onclick="if(event.target===this)closeAddSource()">
+  <div class="modal" style="max-width:540px;width:95%">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <h2>Add Job Source</h2>
+      <button onclick="closeAddSource()" style="background:none;border:none;color:var(--muted);font-size:1.5rem;cursor:pointer">&times;</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Source Name *</label>
+        <input type="text" id="addName" placeholder="e.g. My Company Jobs">
+      </div>
+      <div class="form-group">
+        <label>Category</label>
+        <select id="addCategory">
+          <option value="remote">Remote</option>
+          <option value="startup">Startup</option>
+          <option value="enterprise">Enterprise</option>
+          <option value="freelance">Freelance</option>
+          <option value="general" selected>General</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Type</label>
+        <select id="addType" onchange="onAddTypeChange()">
+          <option value="rss" selected>RSS Feed</option>
+          <option value="json_api">JSON API</option>
+          <option value="html_scraper">HTML Scraper</option>
+          <option value="dynamic_rss">Dynamic RSS (uses job role &amp; location)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Update Frequency</label>
+        <select id="addFreq">
+          <option value="hourly">Hourly</option>
+          <option value="daily" selected>Daily</option>
+          <option value="weekly">Weekly</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group form-row full" id="addUrlRow">
+      <div class="form-group" style="margin-bottom:0">
+        <label id="addUrlLabel">Feed URL *</label>
+        <input type="text" id="addUrl" placeholder="https://example.com/jobs/feed.rss">
+      </div>
+    </div>
+    <div class="form-group" id="addTemplateRow" style="display:none">
+      <label>URL Template (use <code>{job_role}</code> and <code>{location}</code>)</label>
+      <input type="text" id="addTemplate" placeholder="https://example.com/rss?q={job_role}&l={location}">
+    </div>
+    <div class="form-group" id="addJsonPathRow" style="display:none">
+      <label>JSON Path to jobs array (e.g. <code>jobs</code> or <code>data.results</code>)</label>
+      <input type="text" id="addJsonPath" placeholder="jobs">
+    </div>
+    <div class="form-group">
+      <label>Filter Keywords (comma-separated, leave blank to include all jobs)</label>
+      <input type="text" id="addKeywords" placeholder="engineer, developer, data, backend">
+    </div>
+    <p id="addSourceStatus" style="font-size:.83rem;margin:8px 0;display:none"></p>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px">
+      <button class="btn btn-secondary" onclick="closeAddSource()">Cancel</button>
+      <button class="btn" onclick="submitAddSource()">Add Source</button>
+    </div>
+  </div>
 </div>
 
 <!-- Settings Modal -->
@@ -788,6 +985,181 @@ async function saveSettings(){
 document.getElementById('search').addEventListener('input',()=>renderGrid(allJobs));
 document.getElementById('sortBy').addEventListener('change',()=>renderGrid(allJobs));
 
+// ============================================================
+// Sources Panel
+// ============================================================
+let allSources=[], srcCatFilter='all';
+
+async function openSources(){
+  document.getElementById('sourcesModal').classList.add('open');
+  await loadSources();
+}
+function closeSources(){document.getElementById('sourcesModal').classList.remove('open');}
+
+async function loadSources(){
+  try{
+    const r=await fetch('/api/sources');
+    const d=await r.json();
+    allSources=d.sources||[];
+    const s=d.summary||{};
+    document.getElementById('srcCountBadge').textContent=
+      `(${s.enabled||0} enabled / ${s.total||0} total)`;
+    renderSources();
+  }catch(e){console.error('loadSources',e);}
+}
+
+function filterSrcCat(cat){
+  srcCatFilter=cat;
+  document.querySelectorAll('#srcCategoryTabs .cat-tab').forEach(t=>{
+    t.classList.toggle('active',t.textContent.toLowerCase()===cat||
+      (cat==='all'&&t.textContent==='All'));
+  });
+  renderSources();
+}
+
+function healthDotClass(status){
+  return {'healthy':'h-healthy','degraded':'h-degraded','down':'h-down'}[status]||'h-unknown';
+}
+
+function renderSources(){
+  const filtered=srcCatFilter==='all'?allSources:allSources.filter(s=>s.category===srcCatFilter);
+  const grid=document.getElementById('srcGrid');
+  if(!filtered.length){grid.innerHTML='<p style="color:var(--muted);padding:20px">No sources in this category.</p>';return;}
+  grid.innerHTML=filtered.map(s=>{
+    const h=s.health||{};
+    const dotCls=healthDotClass(h.status||'unknown');
+    const rel=Math.round((s.reliability_score||0)*100);
+    const relColor=rel>=80?'var(--green)':rel>=50?'var(--yellow)':'var(--red)';
+    const hasUrl=!!(s.url||s.url_template);
+    const setup=s._setup||'';
+    return `<div class="src-card${s.enabled?'':' disabled'}">
+      <div class="src-header">
+        <span class="health-dot ${dotCls}" title="Health: ${h.status||'unknown'}"></span>
+        <span class="src-name">${esc(s.name)}</span>
+      </div>
+      <div class="src-badges">
+        <span class="src-badge badge-type">${esc(s.type)}</span>
+        <span class="src-badge badge-cat">${esc(s.category)}</span>
+        <span class="src-badge badge-freq">${esc(s.update_frequency||'daily')}</span>
+      </div>
+      <div class="src-meta">
+        ${hasUrl?`<a href="${esc(s.url||s.url_template)}" target="_blank" rel="noopener">${esc((s.url||s.url_template).slice(0,55))}${(s.url||s.url_template).length>55?'…':''}</a>`:'<em>No URL configured</em>'}
+      </div>
+      ${setup?`<div class="src-setup">&#9432; ${esc(setup.slice(0,120))}${setup.length>120?'…':''}</div>`:''}
+      <div style="display:flex;align-items:center;margin-top:8px;gap:6px">
+        <span style="font-size:.7rem;color:var(--muted)">Reliability</span>
+        <div class="reliability-bar"><div class="reliability-fill" style="width:${rel}%;background:${relColor}"></div></div>
+        <span style="font-size:.7rem;color:${relColor}">${rel}%</span>
+        ${h.last_checked?`<span style="font-size:.65rem;color:var(--muted);margin-left:auto">${formatDate(h.last_checked)}</span>`:''}
+      </div>
+      <div class="src-footer" style="margin-top:8px">
+        <span style="font-size:.7rem;color:var(--muted)">
+          &#10003;${h.success_count||0} &nbsp; &#10007;${h.failure_count||0}
+          ${h.last_response_time_ms?` &nbsp; ${h.last_response_time_ms}ms`:''}
+        </span>
+        <button class="toggle-btn ${s.enabled?'toggle-on':'toggle-off'}"
+          onclick="toggleSource('${s.id}')">
+          ${s.enabled?'Enabled':'Disabled'}
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function toggleSource(sourceId){
+  try{
+    const r=await fetch(`/api/sources/${encodeURIComponent(sourceId)}/toggle`,{method:'POST'});
+    const d=await r.json();
+    if(d.ok){await loadSources();}
+    else{alert(d.message);}
+  }catch(e){console.error('toggleSource',e);}
+}
+
+async function runHealthCheck(){
+  const btn=document.getElementById('healthCheckBtn');
+  const status=document.getElementById('healthCheckStatus');
+  btn.disabled=true;btn.textContent='Checking…';
+  status.textContent='Health check in progress…';
+  try{
+    const r=await fetch('/api/sources/health-check',{method:'POST'});
+    const d=await r.json();
+    if(d.ok){
+      status.textContent='Running in background. Results appear when done.';
+      // Poll for completion
+      const poll=setInterval(async()=>{
+        const hr=await fetch('/api/sources/health');
+        const hd=await hr.json();
+        if(!hd.running){
+          clearInterval(poll);
+          btn.disabled=false;btn.textContent='&#9679; Check Health';
+          status.textContent='Health check complete.';
+          await loadSources();
+        }
+      },2000);
+    }else{
+      status.textContent=d.message||'Error';
+      btn.disabled=false;btn.textContent='&#9679; Check Health';
+    }
+  }catch(e){
+    status.textContent='Error running health check';
+    btn.disabled=false;btn.textContent='&#9679; Check Health';
+  }
+}
+
+// ---- Add Source ----
+function openAddSource(){document.getElementById('addSourceModal').classList.add('open');}
+function closeAddSource(){
+  document.getElementById('addSourceModal').classList.remove('open');
+  document.getElementById('addSourceStatus').style.display='none';
+}
+function onAddTypeChange(){
+  const t=document.getElementById('addType').value;
+  document.getElementById('addUrlRow').style.display=(t==='dynamic_rss')?'none':'block';
+  document.getElementById('addTemplateRow').style.display=(t==='dynamic_rss')?'block':'none';
+  document.getElementById('addJsonPathRow').style.display=(t==='json_api')?'block':'none';
+  document.getElementById('addUrlLabel').textContent=
+    t==='html_scraper'?'Page URL *':t==='json_api'?'API Endpoint URL *':'Feed URL *';
+}
+async function submitAddSource(){
+  const status=document.getElementById('addSourceStatus');
+  const type=document.getElementById('addType').value;
+  const name=document.getElementById('addName').value.trim();
+  const url=document.getElementById('addUrl').value.trim();
+  const template=document.getElementById('addTemplate').value.trim();
+  const keywords=document.getElementById('addKeywords').value
+    .split(',').map(k=>k.trim()).filter(Boolean);
+
+  const payload={
+    name, type,
+    category:document.getElementById('addCategory').value,
+    update_frequency:document.getElementById('addFreq').value,
+    url: type==='dynamic_rss'?'':url,
+    url_template: type==='dynamic_rss'?template:'',
+    filter_keywords: keywords,
+    enabled: true,
+  };
+  if(type==='json_api'){
+    const jp=document.getElementById('addJsonPath').value.trim();
+    if(jp) payload.json_path=jp;
+  }
+
+  try{
+    const r=await fetch('/api/sources/add',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const d=await r.json();
+    status.style.display='block';
+    if(d.ok){
+      status.style.color='var(--green)';status.textContent='Source added!';
+      setTimeout(()=>{closeAddSource();loadSources();},900);
+    }else{
+      status.style.color='var(--red)';status.textContent=d.message||'Error';
+    }
+  }catch(e){
+    status.style.display='block';status.style.color='var(--red)';
+    status.textContent='Request failed';
+  }
+}
+
 refresh();
 setInterval(refresh,300000);
 </script>
@@ -828,10 +1200,14 @@ setInterval(refresh,300000);
         if changed:
             _cache.clear()
             _last_refresh.clear()
-            # Re-wire Talent500 URL
+            # Re-wire dynamic URLs
             for p in portals:
                 if p.get("type") == "talent500":
                     p["url"] = _build_talent500_url(_live["job_role"])
+                elif p.get("type") == "dynamic_rss":
+                    p["url"] = _build_dynamic_url(
+                        p.get("url_template", ""), _live["job_role"], _live["location"]
+                    )
             # Persist to config.json
             try:
                 cfg_path = os.path.abspath(config_path)
@@ -847,6 +1223,110 @@ setInterval(refresh,300000);
             except Exception as e:
                 logger.warning("Could not save config.json: %s", e)
         return jsonify({"ok": True, **_live})
+
+    # ------------------------------------------------------------------ #
+    #  Sources & Health API                                               #
+    # ------------------------------------------------------------------ #
+
+    @app.route("/api/sources")
+    def api_sources():
+        """Return all portals with their health and registry metadata."""
+        result = []
+        for p in portals:
+            if p.get("_runtime"):
+                continue
+            entry = {
+                "id": p.get("id", p.get("name")),
+                "name": p.get("name"),
+                "source_name": p.get("source_name", p.get("name")),
+                "base_url": p.get("base_url", ""),
+                "type": p.get("type", "rss"),
+                "url": p.get("url", ""),
+                "url_template": p.get("url_template", ""),
+                "category": p.get("category", "general"),
+                "query_params_supported": p.get("query_params_supported", False),
+                "update_frequency": p.get("update_frequency", "daily"),
+                "reliability_score": p.get("reliability_score", 0.0),
+                "enabled": p.get("enabled", True),
+                "filter_keywords": p.get("filter_keywords", []),
+                "health": p.get("health", {}),
+                "_setup": p.get("_setup", ""),
+            }
+            # Merge live health_status if available
+            sid = entry["id"]
+            if sid in _health_status:
+                entry["health"] = {**entry["health"], **_health_status[sid]}
+            result.append(entry)
+        return jsonify({
+            "sources": result,
+            "summary": summary(portals),
+            "health_running": _health_running["active"],
+        })
+
+    @app.route("/api/sources/health-check", methods=["POST"])
+    def api_health_check():
+        """Start an async health check for all configured sources."""
+        if _health_running["active"]:
+            return jsonify({"ok": False, "message": "Health check already in progress"}), 409
+        threading.Thread(target=_run_health_checks, daemon=True).start()
+        return jsonify({"ok": True, "message": "Health check started"})
+
+    @app.route("/api/sources/health")
+    def api_sources_health():
+        """Return the latest health results for all sources."""
+        return jsonify({
+            "health": _health_status,
+            "running": _health_running["active"],
+            "checked_at": max(
+                (v.get("checked_at", "") for v in _health_status.values()),
+                default=None,
+            ),
+        })
+
+    @app.route("/api/sources/<source_id>/toggle", methods=["POST"])
+    def api_toggle_source(source_id: str):
+        """Enable or disable a source by id."""
+        new_state = toggle_source(portals, source_id)
+        if new_state is None:
+            return jsonify({"ok": False, "message": f"Source '{source_id}' not found"}), 404
+        _cache.clear()
+        _last_refresh.clear()
+        try:
+            save_registry(portals_path, portals)
+        except Exception as exc:
+            logger.warning("Could not persist toggle: %s", exc)
+        return jsonify({"ok": True, "source_id": source_id, "enabled": new_state})
+
+    @app.route("/api/sources/add", methods=["POST"])
+    def api_add_source():
+        """Add a new source from a JSON payload conforming to the registry schema."""
+        data = request.get_json(silent=True) or {}
+        if not data.get("name"):
+            return jsonify({"ok": False, "message": "name is required"}), 400
+        if not data.get("url") and data.get("type") not in ("talent500", "dynamic_rss"):
+            return jsonify({"ok": False, "message": "url is required"}), 400
+        ok, reason = add_source(portals, data)
+        if not ok:
+            return jsonify({"ok": False, "message": reason}), 409
+        _cache.clear()
+        try:
+            save_registry(portals_path, portals)
+        except Exception as exc:
+            logger.warning("Could not persist new source: %s", exc)
+        return jsonify({"ok": True, "message": "Source added", "id": data.get("id")})
+
+    @app.route("/api/sources/<source_id>", methods=["DELETE"])
+    def api_delete_source(source_id: str):
+        """Remove a source by id."""
+        removed = remove_source(portals, source_id)
+        if not removed:
+            return jsonify({"ok": False, "message": f"Source '{source_id}' not found"}), 404
+        _cache.clear()
+        try:
+            save_registry(portals_path, portals)
+        except Exception as exc:
+            logger.warning("Could not persist removal: %s", exc)
+        return jsonify({"ok": True, "message": f"Source '{source_id}' removed"})
 
     return app
 
