@@ -200,6 +200,78 @@ def fetch_html_scraper(portal: dict) -> list[JobFeedItem]:
     return items
 
 
+def fetch_json_api(portal: dict) -> list[JobFeedItem]:
+    """Fetch jobs from a JSON API endpoint.
+
+    Portal config fields:
+    - url: API endpoint (required)
+    - json_path: dot-separated path to the list, e.g. "jobs" or "data.results"
+    - title_field: key for job title (default: "title")
+    - link_field: key for job URL (default: "url")
+    - desc_field: key for description (default: "description")
+    - location_field: key for location (default: "location")
+    - date_field: key for publication date (default: "" = omitted)
+    """
+    url = portal.get("url", "")
+    if not url:
+        return []
+
+    json_path = portal.get("json_path", "")
+    title_field = portal.get("title_field", "title")
+    link_field = portal.get("link_field", "url")
+    desc_field = portal.get("desc_field", "description")
+    location_field = portal.get("location_field", "location")
+    date_field = portal.get("date_field", "")
+
+    r = requests.get(url, headers=_HEADERS, timeout=30)
+    r.raise_for_status()
+    data = r.json()
+
+    # Navigate nested path: e.g. "jobs" → data["jobs"]
+    if json_path:
+        for key in json_path.split("."):
+            if isinstance(data, dict):
+                data = data.get(key, [])
+
+    if not isinstance(data, list):
+        logger.warning("%s JSON API: expected list at path '%s', got %s", portal["name"], json_path, type(data).__name__)
+        return []
+
+    items: list[JobFeedItem] = []
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        link = str(entry.get(link_field, "")).strip()
+        if not link:
+            continue
+        title = str(entry.get(title_field, "")).strip() or "(no title)"
+        # Strip HTML from description field (Remotive API returns HTML)
+        raw_desc = str(entry.get(desc_field, "")).strip()
+        desc = _strip_html(raw_desc) if "<" in raw_desc else raw_desc
+        location = str(entry.get(location_field, "")).strip()
+        published = str(entry.get(date_field, "")).strip() if date_field else ""
+        items.append(JobFeedItem(
+            title=title, link=link, description=desc[:500],
+            location=location, published=published,
+        ))
+
+    logger.info("%s JSON API: %d jobs from %s", portal["name"], len(items), url)
+    return items
+
+
+def fetch_dynamic_rss(portal: dict) -> list[JobFeedItem]:
+    """Dynamic RSS feed whose URL was pre-built from config parameters.
+
+    The URL is expected to already be resolved (set by web.py/_build_app from
+    the portal's ``url_template`` field). Falls back gracefully if empty.
+    """
+    url = portal.get("url", "")
+    if not url:
+        logger.debug("%s dynamic_rss: no URL resolved yet, skipping", portal.get("name"))
+        return []
+    return fetch_feed_items(url)
+
+
 def fetch_noop(portal: dict) -> list[JobFeedItem]:
     logger.debug("%s: no URL configured, skipping", portal["name"])
     return []
@@ -214,6 +286,8 @@ FETCHERS = {
     "weworkremotely": fetch_weworkremotely,
     "sitemap": fetch_sitemap_generic,
     "html_scraper": fetch_html_scraper,
+    "json_api": fetch_json_api,
+    "dynamic_rss": fetch_dynamic_rss,
     "noop": fetch_noop,
 }
 
