@@ -207,6 +207,31 @@ cursor:pointer;font-size:.82rem;color:var(--muted);transition:all .15s}
 .filter-item input[type="radio"]{display:none}
 .filter-dot{width:8px;height:8px;border-radius:50%;border:1.5px solid var(--muted);flex-shrink:0}
 .filter-item.active .filter-dot{background:var(--accent);border-color:var(--accent)}
+/* Location multi-select dropdown */
+.loc-dropdown{position:relative;margin-bottom:4px}
+.loc-btn{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);
+padding:6px 10px;border-radius:6px;font-size:.82rem;cursor:pointer;display:flex;
+justify-content:space-between;align-items:center;text-align:left;transition:border-color .15s}
+.loc-btn:hover{border-color:var(--accent)}
+.loc-btn .arrow{font-size:.6rem;color:var(--muted)}
+.loc-panel{display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;
+background:var(--card);border:1px solid var(--border);border-radius:8px;
+box-shadow:0 8px 24px rgba(0,0,0,.4);z-index:200;max-height:280px;overflow-y:auto}
+.loc-panel.open{display:block}
+.loc-search{padding:8px;border-bottom:1px solid var(--border)}
+.loc-search input{width:100%;background:var(--bg);border:1px solid var(--border);
+color:var(--text);padding:5px 8px;border-radius:4px;font-size:.8rem}
+.loc-option{display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;
+font-size:.8rem;color:var(--muted);transition:background .1s}
+.loc-option:hover{background:rgba(56,189,248,.08);color:var(--text)}
+.loc-option input[type="checkbox"]{accent-color:var(--accent);width:13px;height:13px;cursor:pointer}
+.loc-option label{flex:1;cursor:pointer;color:var(--text)}
+.loc-option .loc-count{font-size:.7rem;color:var(--muted);margin-left:auto}
+.loc-clear{padding:6px 10px;border-top:1px solid var(--border);font-size:.75rem;
+color:var(--accent);cursor:pointer;text-align:center}
+.loc-clear:hover{background:rgba(56,189,248,.08)}
+.loc-tag{display:inline-block;background:rgba(56,189,248,.15);color:var(--accent);
+padding:1px 6px;border-radius:10px;font-size:.7rem;margin:1px}
 
 /* Main content */
 .main{margin-left:var(--sidebar-w);flex:1;padding:16px 24px}
@@ -301,9 +326,15 @@ border-top:1px solid var(--border);margin-top:20px}
   <div class="sidebar-logo">Job <span>Search</span></div>
 
   <h3>Location</h3>
-  <div class="filter-group" id="locationFilters">
-    <div class="filter-item active" onclick="setLocationFilter('all')">
-      <span class="filter-dot"></span> All Locations <span class="count" id="locAll"></span>
+  <div class="loc-dropdown" id="locDropdown">
+    <button class="loc-btn" id="locBtn" onclick="toggleLocPanel(event)">
+      <span id="locBtnLabel">All Locations</span>
+      <span class="arrow">&#9660;</span>
+    </button>
+    <div class="loc-panel" id="locPanel">
+      <div class="loc-search"><input type="text" id="locSearch" placeholder="Search location..." oninput="filterLocOptions()"></div>
+      <div id="locOptions"></div>
+      <div class="loc-clear" onclick="clearLocations()">Clear all selections</div>
     </div>
   </div>
 
@@ -423,7 +454,9 @@ border-top:1px solid var(--border);margin-top:20px}
 
 <script>
 let allJobs=[], activeFeed='all';
-let activeLocation='all', activeDateFilter='all', activeVisitedFilter='all', activeScoreFilter=0;
+let activeLocations=new Set(); // empty = all locations
+let activeDateFilter='all', activeVisitedFilter='all', activeScoreFilter=0;
+let _locCounts={};  // bucket -> count (from all jobs, for dropdown)
 
 // ---- Visited/Applied tracking (localStorage) ----
 function getVisited(){try{return JSON.parse(localStorage.getItem('jsd_visited')||'{}');}catch(e){return {};}}
@@ -441,82 +474,145 @@ function scoreClass(s){
 // ---- Date filter logic ----
 function parseDate(s){
   if(!s) return null;
-  // Try ISO / common formats
   const d=new Date(s);
   if(!isNaN(d.getTime())) return d;
   return null;
 }
-
 function matchesDateFilter(published, filter){
   if(filter==='all') return true;
   const d=parseDate(published);
-  if(!d) return true; // If no date, show it
+  if(!d) return true;
   const now=Date.now();
-  const ms={
-    '1min':60*1000,
-    '1hour':60*60*1000,
-    '1day':24*60*60*1000,
-    '1week':7*24*60*60*1000,
-    '2weeks':14*24*60*60*1000,
-    '1month':30*24*60*60*1000,
-  };
+  const ms={'1min':60000,'1hour':3600000,'1day':86400000,'1week':604800000,'2weeks':1209600000,'1month':2592000000};
   const cutoff=ms[filter];
   if(!cutoff) return true;
   return (now - d.getTime()) <= cutoff;
 }
 
-// ---- Location filter ----
-function buildLocationFilters(jobs){
-  const counts={};
-  jobs.forEach(j=>{
-    const loc=(j.location||'Not specified').trim();
-    // Normalize to top-level location buckets
-    const bucket=normalizeLocation(loc);
-    counts[bucket]=(counts[bucket]||0)+1;
-  });
-  const container=document.getElementById('locationFilters');
-  let html=`<div class="filter-item ${activeLocation==='all'?'active':''}" onclick="setLocationFilter('all')">
-    <span class="filter-dot"></span> All Locations <span class="count">(${jobs.length})</span></div>`;
-  // Sort by count descending
-  Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,15).forEach(([loc,c])=>{
-    const escaped=loc.replace(/'/g,"\\'");
-    html+=`<div class="filter-item ${activeLocation===loc?'active':''}" onclick="setLocationFilter('${escaped}')">
-      <span class="filter-dot"></span> ${esc(loc)} <span class="count">(${c})</span></div>`;
-  });
-  container.innerHTML=html;
-}
-
+// ---- Location normalize ----
 function normalizeLocation(loc){
-  const l=loc.toLowerCase().trim();
+  const l=(loc||'').toLowerCase().trim();
   if(!l || l==='not specified') return 'Not specified';
-  if(l.includes('remote')) return 'Remote';
+  if(l.includes('remote') || l.includes('anywhere') || l.includes('worldwide') || l.includes('global')) return 'Remote';
+  // India
   if(l.includes('bangalore') || l.includes('bengaluru')) return 'Bangalore';
   if(l.includes('hyderabad')) return 'Hyderabad';
   if(l.includes('pune')) return 'Pune';
   if(l.includes('mumbai')) return 'Mumbai';
   if(l.includes('chennai')) return 'Chennai';
   if(l.includes('delhi') || l.includes('noida') || l.includes('gurgaon') || l.includes('gurugram')) return 'Delhi NCR';
+  if(l.includes('kolkata')) return 'Kolkata';
+  if(l.includes('ahmedabad')) return 'Ahmedabad';
+  if(l.includes('kochi') || l.includes('cochin')) return 'Kochi';
+  if(l.includes('coimbatore')) return 'Coimbatore';
+  if(l.includes('jaipur')) return 'Jaipur';
   if(l.includes('india')) return 'India';
-  if(l.includes('london')) return 'London';
-  if(l.includes('new york')) return 'New York';
-  if(l.includes('san francisco') || l.includes('bay area')) return 'San Francisco';
+  // Europe
+  if(l.includes('london') || l.includes('manchester') || l.includes('edinburgh') || l.includes('bristol') || l.includes('birmingham')) return 'United Kingdom';
+  if(l.includes('berlin') || l.includes('munich') || l.includes('hamburg') || l.includes('frankfurt') || l.includes('cologne')) return 'Germany';
+  if(l.includes('amsterdam') || l.includes('rotterdam') || l.includes('utrecht')) return 'Netherlands';
+  if(l.includes('paris') || l.includes('lyon') || l.includes('marseille')) return 'France';
+  if(l.includes('dublin')) return 'Ireland';
+  if(l.includes('stockholm') || l.includes('gothenburg')) return 'Sweden';
+  if(l.includes('copenhagen')) return 'Denmark';
+  if(l.includes('barcelona') || l.includes('madrid')) return 'Spain';
+  if(l.includes('lisbon') || l.includes('porto')) return 'Portugal';
+  if(l.includes('warsaw') || l.includes('krakow') || l.includes('wroclaw')) return 'Poland';
+  if(l.includes('prague')) return 'Czech Republic';
+  if(l.includes('vienna')) return 'Austria';
+  if(l.includes('zurich') || l.includes('geneva') || l.includes('bern')) return 'Switzerland';
+  if(l.includes('helsinki')) return 'Finland';
+  if(l.includes('oslo')) return 'Norway';
+  if(l.includes('brussels')) return 'Belgium';
+  if(l.includes('milan') || l.includes('rome')) return 'Italy';
+  if(l.includes('europe')) return 'Europe';
+  // North America
+  if(l.includes('toronto') || l.includes('vancouver') || l.includes('montreal') || l.includes('ottawa')) return 'Canada';
+  if(l.includes('new york') || l.includes('nyc')) return 'New York';
+  if(l.includes('san francisco') || l.includes('bay area') || l.includes('sf')) return 'San Francisco';
+  if(l.includes('seattle')) return 'Seattle';
+  if(l.includes('austin')) return 'Austin';
+  if(l.includes('chicago')) return 'Chicago';
+  if(l.includes('boston')) return 'Boston';
+  if(l.includes('los angeles') || l.includes(' la,') || l.includes('la ')) return 'Los Angeles';
+  if(l.includes('usa') || l.includes('united states') || l.includes('us ') || l==='us') return 'USA';
+  // Asia-Pacific
   if(l.includes('singapore')) return 'Singapore';
-  // Return capitalized first word
-  return loc.split(',')[0].trim() || 'Not specified';
+  if(l.includes('tokyo') || l.includes('osaka')) return 'Japan';
+  if(l.includes('sydney') || l.includes('melbourne') || l.includes('australia')) return 'Australia';
+  if(l.includes('dubai') || l.includes('abu dhabi')) return 'UAE';
+  // Return cleaned first segment
+  return loc.split(/[,|/]/)[0].trim() || 'Not specified';
 }
 
 function matchesLocationFilter(job){
-  if(activeLocation==='all') return true;
+  if(activeLocations.size===0) return true;
   const bucket=normalizeLocation(job.location||'');
-  return bucket===activeLocation;
+  return activeLocations.has(bucket);
 }
 
-// ---- Sidebar filter setters ----
-function setLocationFilter(loc){
-  activeLocation=loc;
-  updateFilterUI('locationFilters',loc);
+// ---- Location dropdown (multi-select) ----
+function buildLocCounts(jobs){
+  _locCounts={};
+  jobs.forEach(j=>{
+    const b=normalizeLocation(j.location||'');
+    _locCounts[b]=(_locCounts[b]||0)+1;
+  });
+}
+
+function renderLocOptions(searchVal=''){
+  const q=searchVal.toLowerCase();
+  const sorted=Object.entries(_locCounts).sort((a,b)=>b[1]-a[1]);
+  const html=sorted.filter(([loc])=>!q||loc.toLowerCase().includes(q)).map(([loc,c])=>`
+    <div class="loc-option">
+      <input type="checkbox" id="lc_${esc(loc)}" ${activeLocations.has(loc)?'checked':''}
+        onchange="toggleLocation('${loc.replace(/'/g,"\\'")}',this.checked)">
+      <label for="lc_${esc(loc)}">${esc(loc)}</label>
+      <span class="loc-count">${c}</span>
+    </div>`).join('');
+  document.getElementById('locOptions').innerHTML=html||'<div class="loc-option" style="color:var(--muted)">No matches</div>';
+}
+
+function updateLocBtn(){
+  const label=document.getElementById('locBtnLabel');
+  if(activeLocations.size===0){
+    label.innerHTML='All Locations';
+  } else {
+    const tags=[...activeLocations].map(l=>`<span class="loc-tag">${esc(l)}</span>`).join(' ');
+    label.innerHTML=tags;
+  }
+}
+
+function toggleLocPanel(e){
+  e.stopPropagation();
+  document.getElementById('locPanel').classList.toggle('open');
+  document.getElementById('locSearch').value='';
+  renderLocOptions();
+}
+function filterLocOptions(){
+  renderLocOptions(document.getElementById('locSearch').value);
+}
+function toggleLocation(loc, checked){
+  if(checked) activeLocations.add(loc);
+  else activeLocations.delete(loc);
+  updateLocBtn();
   renderAll();
 }
+function clearLocations(){
+  activeLocations.clear();
+  updateLocBtn();
+  renderLocOptions(document.getElementById('locSearch').value);
+  renderAll();
+}
+// Close dropdown when clicking outside
+document.addEventListener('click', e=>{
+  const panel=document.getElementById('locPanel');
+  if(panel && !document.getElementById('locDropdown').contains(e.target)){
+    panel.classList.remove('open');
+  }
+});
+
+// ---- Sidebar filter setters ----
 function setDateFilter(f){
   activeDateFilter=f;
   updateFilterUI('dateFilters',f);
@@ -532,28 +628,35 @@ function setScoreFilter(s){
   updateFilterUI('scoreFilters',String(s));
   renderAll();
 }
-
 function updateFilterUI(containerId, activeValue){
   const items=document.getElementById(containerId).querySelectorAll('.filter-item');
   items.forEach(el=>{
     const onclick=el.getAttribute('onclick')||'';
     const match=onclick.match(/'([^']*)'/) || onclick.match(/\((\d+)\)/);
-    if(match){
-      el.classList.toggle('active', match[1]===String(activeValue));
-    }
+    if(match) el.classList.toggle('active', match[1]===String(activeValue));
   });
 }
 
 function renderAll(){
+  buildLocCounts(allJobs);
   renderTabs(allJobs);
-  buildLocationFilters(allJobs);
   renderGrid(allJobs);
 }
 
 function renderTabs(jobs){
-  const sources={};jobs.forEach(j=>{sources[j.source]=(sources[j.source]||0)+1});
-  let html=`<div class="feed-tab ${activeFeed==='all'?'active':''}" onclick="setFeed('all')">All<span class="count">(${jobs.length})</span></div>`;
-  Object.entries(sources).sort((a,b)=>b[1]-a[1]).forEach(([s,c])=>{
+  // Count per source applying ALL non-source filters so tab counts stay in sync
+  const srcCounts={};
+  jobs.forEach(j=>{
+    if(j.score<activeScoreFilter) return;
+    if(activeVisitedFilter==='new' && isVisited(j.link)) return;
+    if(activeVisitedFilter==='visited' && !isVisited(j.link)) return;
+    if(!matchesLocationFilter(j)) return;
+    if(!matchesDateFilter(j.published, activeDateFilter)) return;
+    srcCounts[j.source]=(srcCounts[j.source]||0)+1;
+  });
+  const totalFiltered=Object.values(srcCounts).reduce((s,c)=>s+c,0);
+  let html=`<div class="feed-tab ${activeFeed==='all'?'active':''}" onclick="setFeed('all')">All<span class="count">(${totalFiltered})</span></div>`;
+  Object.entries(srcCounts).sort((a,b)=>b[1]-a[1]).forEach(([s,c])=>{
     html+=`<div class="feed-tab ${activeFeed===s?'active':''}" onclick="setFeed('${s.replace(/'/g,"\\'")}')">
       ${s}<span class="count">(${c})</span></div>`;
   });
@@ -581,11 +684,12 @@ function renderGrid(jobs){
   else if(sort==='newest') filtered.sort((a,b)=>(b.published||'').localeCompare(a.published||''));
   else filtered.sort((a,b)=>b.score-a.score);
 
+  // Update header stats with filtered counts
   document.getElementById('totalJobs').textContent=filtered.length;
   const avg=filtered.length?Math.round(filtered.reduce((s,j)=>s+j.score,0)/filtered.length):0;
   document.getElementById('avgScore').textContent=avg;
   document.getElementById('topMatch').textContent=filtered.length?filtered.reduce((m,j)=>Math.max(m,j.score),0):'-';
-  document.getElementById('feedCount').textContent=new Set(jobs.map(j=>j.source)).size;
+  document.getElementById('feedCount').textContent=new Set(filtered.map(j=>j.source)).size;
   document.getElementById('visitedCount').textContent=visitedCount();
 
   if(!filtered.length){
@@ -605,7 +709,7 @@ function renderGrid(jobs){
       </div>
       <div class="card-desc">${esc(j.description)}</div>
       <div class="card-meta">
-        ${j.location?`<span class="meta-tag meta-location">&#128205; ${esc(j.location)}</span>`:''}
+        ${j.location?`<span class="meta-tag meta-location">&#128205; ${esc(normalizeLocation(j.location))}</span>`:''}
         ${pubDate?`<span class="meta-tag meta-date">&#128197; ${pubDate}</span>`:''}
       </div>
       <div class="card-footer">
@@ -646,6 +750,7 @@ async function refresh(){
     const data=await fetchJobs();
     allJobs=data.jobs||[];
     renderAll();
+    updateLocBtn();
     if(data.settings){
       document.getElementById('footerBar').innerHTML=
         'Job Search Dashboard &middot; Targeting: <strong>'+esc(data.settings.job_role)+'</strong> in <strong>'+esc(data.settings.location)+'</strong>';
