@@ -18,6 +18,20 @@ _UA = (
 )
 _HEADERS = {"User-Agent": _UA, "Accept": "text/html,application/xhtml+xml,*/*;q=0.8"}
 
+# Common Indian city names for location extraction from slugs
+_INDIAN_CITIES = {
+    "bangalore", "bengaluru", "mumbai", "delhi", "hyderabad", "pune", "chennai",
+    "kolkata", "noida", "gurgaon", "gurugram", "ahmedabad", "jaipur", "kochi",
+    "thiruvananthapuram", "coimbatore", "indore", "chandigarh", "lucknow",
+    "nagpur", "visakhapatnam", "bhubaneswar", "mangalore", "mysore",
+}
+_GLOBAL_CITIES = {
+    "remote", "london", "new york", "san francisco", "seattle", "austin",
+    "chicago", "boston", "toronto", "vancouver", "berlin", "amsterdam",
+    "singapore", "tokyo", "sydney", "dubai", "dublin",
+}
+_LOCATION_WORDS = _INDIAN_CITIES | _GLOBAL_CITIES | {"india", "usa", "us", "uk", "europe", "worldwide"}
+
 
 def _strip_html(raw: str) -> str:
     text = re.sub(r"(?is)<script[^>]*>.*?</script>", " ", raw)
@@ -25,6 +39,13 @@ def _strip_html(raw: str) -> str:
     text = re.sub(r"<[^>]+>", " ", text)
     text = re.sub(r"&\w+;", " ", text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _extract_location_from_slug(slug: str) -> str:
+    """Try to extract a location from a URL slug by matching known city/country names."""
+    parts = slug.lower().replace("-", " ").replace("_", " ").split()
+    found = [p.title() for p in parts if p in _LOCATION_WORDS]
+    return ", ".join(found[:2]) if found else ""
 
 
 # ---- Portal registry -------------------------------------------------------
@@ -61,10 +82,12 @@ def fetch_talent500(portal: dict) -> list[JobFeedItem]:
         clean = re.sub(r'-t500[_-][a-z0-9_]+$', '', slug, flags=re.IGNORECASE)
         title_part = clean.replace("-", " ").title()
         company = job_url.rstrip("/").split("/")[-2].replace("-", " ").title()
+        location = _extract_location_from_slug(clean)
         items.append(JobFeedItem(
             title=f"{title_part} @ {company}",
             link=job_url,
             description=f"{title_part} — {company} (Talent500)",
+            location=location or "Remote",
         ))
 
     logger.info("Talent500: %d jobs matched (keywords=%s, total=%d)", len(items), keywords, len(all_urls))
@@ -82,13 +105,7 @@ def fetch_weworkremotely(portal: dict) -> list[JobFeedItem]:
 
 
 def fetch_sitemap_generic(portal: dict) -> list[JobFeedItem]:
-    """Generic sitemap scraper — for portals that expose a sitemap with job URLs.
-
-    Config keys:
-      sitemap_url: URL of the XML sitemap
-      url_pattern: regex to match job URLs in the sitemap
-      keywords: list of keywords to filter slugs (optional)
-    """
+    """Generic sitemap scraper — for portals that expose a sitemap with job URLs."""
     sitemap_url = portal.get("sitemap_url", "")
     url_pattern = portal.get("url_pattern", r'<loc>([^<]+)</loc>')
     keywords = [k.lower() for k in portal.get("keywords", [])]
@@ -106,20 +123,17 @@ def fetch_sitemap_generic(portal: dict) -> list[JobFeedItem]:
         if keywords and not all(kw in slug.lower() for kw in keywords):
             continue
         title = slug.replace("-", " ").replace("_", " ").title()
-        items.append(JobFeedItem(title=title, link=job_url, description=title))
+        location = _extract_location_from_slug(slug)
+        items.append(JobFeedItem(
+            title=title, link=job_url, description=title, location=location,
+        ))
 
     logger.info("%s sitemap: %d jobs (total=%d)", portal["name"], len(items), len(all_urls))
     return items
 
 
 def fetch_html_scraper(portal: dict) -> list[JobFeedItem]:
-    """Generic HTML scraper — extracts job links from a page.
-
-    Config keys:
-      url: page URL to scrape
-      link_pattern: regex with group(1)=URL, optional group(2)=title
-      base_url: prefix for relative URLs (optional)
-    """
+    """Generic HTML scraper — extracts job links from a page."""
     url = portal["url"]
     link_pattern = portal.get("link_pattern", r'href="(/job[^"]+)"')
     base_url = portal.get("base_url", "")
@@ -150,7 +164,10 @@ def fetch_html_scraper(portal: dict) -> list[JobFeedItem]:
         else:
             title = _strip_html(title).strip()
 
-        items.append(JobFeedItem(title=title, link=link, description=title))
+        location = _extract_location_from_slug(link.rstrip("/").split("/")[-1])
+        items.append(JobFeedItem(
+            title=title, link=link, description=title, location=location,
+        ))
 
     logger.info("%s scraper: %d jobs from %s", portal["name"], len(items), url)
     return items
