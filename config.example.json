@@ -1,8 +1,8 @@
 {
-  "job_role": "Senior Data Engineer",
-  "location": "Remote United States",
-  "rss_feed_url": "https://rss.app/your-feed-id.xml",
-  "resume_summary": "Paste your resume summary here for the Job Matcher prompt.",
+  "job_role": "Senior Data Engineer, Staff Data Engineer, Principal Data Engineer",
+  "location": "Remote India",
+  "rss_feed_url": "https://rss.app/feeds/YOUR-FEED-ID.xml",
+  "resume_summary": "Paste a 3-5 sentence summary of your skills, tech stack, and target role here. Example: Senior Data Engineer with 6+ years building scalable ETL pipelines on AWS and Azure. Expert in Spark, dbt, Airflow, and Snowflake. Seeking senior or staff-level remote roles in data engineering.",
   "airtable_base_id": "appXXXXXXXXXXXXXX",
   "airtable_table_name": "Jobs"
 }
