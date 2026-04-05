@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import certifi
 import feedparser
@@ -12,6 +12,8 @@ class JobFeedItem:
     title: str
     link: str
     description: str
+    location: str = ""
+    published: str = ""  # ISO-ish string, e.g. "2026-04-05 12:00"
 
 
 def fetch_feed_items(feed_url: str) -> list[JobFeedItem]:
@@ -50,5 +52,23 @@ def fetch_feed_items(feed_url: str) -> list[JobFeedItem]:
             desc = str(entry.summary).strip()
         elif entry.get("description"):
             desc = str(entry.description).strip()
-        items.append(JobFeedItem(title=title, link=link, description=desc))
+
+        # Extract location from common RSS fields
+        location = ""
+        if entry.get("location"):
+            location = str(entry.location).strip()
+        elif entry.get("region"):
+            location = str(entry.region).strip()
+
+        # Extract published date
+        published = ""
+        if entry.get("published"):
+            published = str(entry.published).strip()
+        elif entry.get("updated"):
+            published = str(entry.updated).strip()
+
+        items.append(JobFeedItem(
+            title=title, link=link, description=desc,
+            location=location, published=published,
+        ))
     return items
