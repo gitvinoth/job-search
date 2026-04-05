@@ -28,13 +28,15 @@
     "name": "Jobspresso",
     "type": "rss",
     "url": "https://jobspresso.co/feed/",
-    "enabled": true
+    "enabled": true,
+    "filter_keywords": ["engineer", "developer", "architect", "data", "backend", "frontend", "fullstack", "software", "devops", "cloud", "platform", "infrastructure", "sre", "ml", "machine learning", "ai"]
   },
   {
     "name": "NoDesk",
     "type": "rss",
     "url": "https://nodesk.co/remote-jobs/index.xml",
-    "enabled": true
+    "enabled": true,
+    "filter_keywords": ["engineer", "developer", "architect", "data", "backend", "frontend", "fullstack", "full-stack", "software", "devops", "cloud", "platform", "infrastructure", "sre", "python", "java", "javascript", "typescript", "react", "node", "ml", "machine learning", "ai"]
   },
   {
     "name": "JSRemotely",
@@ -42,7 +44,8 @@
     "url": "https://javascript.jobs/remote",
     "link_pattern": "href=\"(https://javascript\\.jobs/job/[^\"]+)\"",
     "base_url": "",
-    "enabled": true
+    "enabled": true,
+    "filter_keywords": ["engineer", "developer", "architect", "fullstack", "full-stack", "backend", "frontend", "senior", "lead", "staff", "principal"]
   },
   {
     "name": "Wellfound",
@@ -118,6 +121,7 @@
     "url": "https://www.crossover.com/jobs",
     "link_pattern": "href=\"(/jobs/[^\"]+)\"",
     "base_url": "https://www.crossover.com",
-    "enabled": true
+    "enabled": true,
+    "filter_keywords": ["engineer", "developer", "architect", "data", "backend", "frontend", "fullstack", "software", "devops", "cloud", "platform", "python", "java"]
   }
 ]
