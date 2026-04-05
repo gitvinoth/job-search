@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "job-dashboard",
+      "runtimeExecutable": "/Users/vinoth/new_project/.venv/bin/python",
+      "runtimeArgs": ["-m", "job_search.web", "--config", "config.json"],
+      "port": 5000,
+      "autoPort": true
+    }
+  ]
+}
